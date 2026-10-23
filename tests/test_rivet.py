@@ -112,6 +112,12 @@ class AuthorizationTests(unittest.TestCase):
         with self.assertRaises(AuthorizationError):
             authorize_source(source, "https://127.0.0.1/a.mp4", resolve_dns=False)
 
+    def test_platform_channel_host_allowlist(self) -> None:
+        from urllib.parse import urlparse
+        allowed = {"twitch.tv", "www.twitch.tv"}
+        self.assertIn(urlparse("https://www.twitch.tv/kaicenat").hostname, allowed)
+        self.assertNotIn(urlparse("https://example.com/kaicenat").hostname, allowed)
+
 
 class MediaTests(unittest.TestCase):
     def test_caption_validation(self) -> None:

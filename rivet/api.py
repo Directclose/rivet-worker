@@ -112,6 +112,11 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._json(200, {
                     "ok": True, "service": "rivet", "version": __version__, **self.store.counts(),
                     "publish_execution_enabled": self.settings.publish_execution_enabled,
+                    "platform_credentials": {
+                        "twitch": bool(self.settings.twitch_client_id and self.settings.twitch_client_secret),
+                        "youtube": bool(self.settings.youtube_api_key),
+                        "kick": bool(self.settings.kick_client_id and self.settings.kick_client_secret),
+                    },
                 })
             elif path == "/api/sources":
                 if self._require_auth():
@@ -179,6 +184,13 @@ class ApiHandler(BaseHTTPRequestHandler):
                 parsed = urlparse(channel_url)
                 if not platform_key or parsed.scheme != "https" or not parsed.hostname:
                     raise ValueError("platform_key and an HTTPS channel_url are required")
+                allowed_hosts = {
+                    "twitch": {"twitch.tv", "www.twitch.tv"},
+                    "youtube": {"youtube.com", "www.youtube.com"},
+                    "kick": {"kick.com", "www.kick.com"},
+                }
+                if parsed.hostname.lower() not in allowed_hosts[platform]:
+                    raise ValueError(f"channel_url must be an official {platform} URL")
                 if str(data.get("creator_id", "")) not in {c["id"] for c in self.store.list_creators()}:
                     raise KeyError(str(data.get("creator_id", "")))
                 self._json(201, self.store.create_channel({

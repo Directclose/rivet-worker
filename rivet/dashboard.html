@@ -102,7 +102,7 @@ margin-top:15px}.actions button{padding:13px;
 border-radius:11px;
 border:1px solid var(--line);
 font-weight:800;
-color:white}.approve{background:#1d6038}.reject{background:#65262a}
+color:white}.approve{background:#1d6038}.reject{background:#65262a}.setup-grid{display:grid;grid-template-columns:360px 1fr;gap:14px;margin-bottom:18px}.setup-form label{display:block;color:var(--muted);font-size:12px;margin-top:10px}.setup-form input,.setup-form select,.setup-form button{width:100%;padding:11px;border-radius:9px;border:1px solid var(--line);background:#0b1015;color:var(--text);margin-top:5px}.setup-form button{background:var(--lime);color:#080b0f;font-weight:900;margin-top:14px}.platforms{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.platform{padding:13px;border:1px solid var(--line);border-radius:12px}.channel-line{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -183,8 +183,10 @@ color:white}.approve{background:#1d6038}.reject{background:#65262a}
 <div>
 <div class="eyebrow">Radar</div>
 <h1>Creator network</h1>
+<p>Connect exact official channels to activate monitoring.</p>
 </div>
 </div>
+<div class="setup-grid"><form class="card setup-form" onsubmit="createChannel(event)"><h2>Add official channel</h2><label>Creator<select id="channel-creator" required></select></label><label>Platform<select id="channel-platform"><option value="twitch">Twitch</option><option value="youtube">YouTube</option><option value="kick">Kick</option></select></label><label>Exact login, slug, or YouTube channel ID<input id="channel-key" required placeholder="kaicenat"></label><label>Official channel URL<input id="channel-url" required type="url" placeholder="https://www.twitch.tv/kaicenat"></label><button>Add to Radar</button><p id="channel-message"></p></form><div class="card"><h2>Platform connections</h2><div id="platform-status" class="platforms"></div><p>Credentials stay on the server and are never shown here.</p></div></div>
 <div id="roster" class="cards">
 </div>
 </section>
@@ -242,6 +244,7 @@ let reviewItems=[];
 function renderReview(){const root=document.querySelector('#reviewer'),x=reviewItems[0];if(!x){root.innerHTML='<div class="empty">You are caught up. No clips need a decision.</div>';return}root.innerHTML=`<div class="reviewer"><div class="player"><video controls playsinline data-clip="${esc(x.id)}"></video></div><div class="card review-meta"><span class="badge">Pending review</span><h2>Clip ${esc(x.id.slice(0,8))}</h2><p>${Number(x.start_seconds).toFixed(1)}–${Number(x.end_seconds).toFixed(1)} seconds · highlight score ${Number(x.score).toFixed(2)}</p><textarea id="review-note" placeholder="Why are you approving or rejecting this clip?"></textarea><div class="actions"><button class="reject" onclick="decide('${esc(x.id)}','rejected')">Reject</button><button class="approve" onclick="decide('${esc(x.id)}','approved')">Approve</button></div><p><small>${reviewItems.length} clip${reviewItems.length===1?'':'s'} remaining</small></p></div></div>`;loadPreview(x.id)}
 async function loadPreview(id){const r=await fetch(`/api/clips/${id}/media`,{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)return;const video=document.querySelector(`video[data-clip="${id}"]`);if(video)video.src=URL.createObjectURL(await r.blob())}
 async function decide(id,decision){const note=document.querySelector('#review-note').value.trim();if(!note){alert('Add a review note first.');return}await api(`/api/clips/${id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,note})});await load()}
+async function createChannel(event){event.preventDefault();const message=document.querySelector('#channel-message');message.textContent='Connecting…';try{await api('/api/channels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({creator_id:document.querySelector('#channel-creator').value,platform:document.querySelector('#channel-platform').value,platform_key:document.querySelector('#channel-key').value.trim(),channel_url:document.querySelector('#channel-url').value.trim(),enabled:true})});event.target.reset();message.textContent='Channel connected.';message.className='good';await load()}catch(error){message.textContent=error.message;message.className='bad'}}
 async function load(){const [s,cs,ch,ca,cl,au,pub]=await Promise.all(['/api/state','/api/creators','/api/channels','/api/candidates','/api/clips','/api/audit','/api/publishing'].map(p=>api(p))),pending=cl.clips.filter(x=>x.status==='pending_review');reviewItems=pending;renderReview();
 creators.textContent=s.creators;
 live.textContent=s.live_candidates;
@@ -259,10 +262,12 @@ document.querySelector('#streams').innerHTML=ca.candidates.filter(x=>x.state==='
 <h2>${esc(x.creator_name)}</h2>
 <p>${esc(x.title)}</p>
 </div>`).join('')||'<p>No connected creators are live.</p>';
+document.querySelector('#channel-creator').innerHTML='<option value="">Choose creator</option>'+cs.creators.map(x=>`<option value="${esc(x.id)}">${esc(x.display_name)}</option>`).join('');
+document.querySelector('#platform-status').innerHTML=['twitch','youtube','kick'].map(name=>`<div class="platform"><b>${name[0].toUpperCase()+name.slice(1)}</b><p class="${s.platform_credentials[name]?'good':'bad'}">${s.platform_credentials[name]?'Credentials connected':'Credentials needed'}</p><small>${ch.channels.filter(c=>c.platform===name).length} channels</small></div>`).join('');
 document.querySelector('#roster').innerHTML=cs.creators.map(x=>`<div class="card">
 <span class="badge">${x.priority} tier</span>
 <h2>${esc(x.display_name)}</h2>
-<p>${ch.channels.filter(c=>c.creator_id===x.id).length} platforms connected</p>
+<p>${ch.channels.filter(c=>c.creator_id===x.id).length} platforms connected</p>${ch.channels.filter(c=>c.creator_id===x.id).map(c=>`<div class="channel-line"><b>${esc(c.platform)}</b> · ${esc(c.platform_key)}<br>${c.last_error?`<span class="bad">${esc(c.last_error)}</span>`:'<span class="good">Ready to poll</span>'}</div>`).join('')}
 </div>`).join('')}nav();
 if(token)unlock();
 setInterval(()=>token&&load().catch(()=>{}),15000);
