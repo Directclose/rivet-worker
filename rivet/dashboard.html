@@ -1,5 +1,272 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080b0f"><title>Rivet</title><style>
-:root{color-scheme:dark;--bg:#080b0f;--panel:#121820;--line:#27323e;--text:#f4f7f9;--muted:#91a0ad;--lime:#b8f34b;--red:#ff7278;--amber:#ffc05c}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#1b2935,transparent 35%),var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}aside{border-right:1px solid var(--line);padding:24px 14px}.brand{font-size:28px;font-weight:900;padding:0 12px 22px}.brand i,.eyebrow,.good{color:var(--lime)}nav{display:grid;gap:4px}nav button{border:0;background:transparent;color:var(--muted);text-align:left;padding:11px 13px;border-radius:10px}nav button.active,nav button:hover{background:#18212a;color:var(--text)}main{padding:28px 32px 80px;max-width:1400px;width:100%;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.top h1{font-size:32px;letter-spacing:-1px;margin:3px 0}.top p,.card p,small{color:var(--muted)}.eyebrow{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase}.pill,.badge{border:1px solid var(--line);border-radius:99px;padding:6px 10px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.card{border:1px solid var(--line);background:linear-gradient(145deg,#171f28,var(--panel));border-radius:16px;padding:17px}.metric strong{display:block;font-size:30px;margin-top:6px}.section{margin-top:26px}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.item{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line)}.item:first-child{border:0}.notice{padding:14px;border-left:3px solid var(--amber);background:#211a10;border-radius:5px 12px 12px 5px}.view{display:none}.view.active{display:block}.gate{position:fixed;inset:0;background:#05080bec;display:grid;place-items:center;z-index:8}.gate.hidden{display:none}.login{width:min(400px,calc(100% - 30px));text-align:center}.login input,.login button{width:100%;padding:12px;margin-top:9px;border-radius:10px;border:1px solid var(--line)}.login input{background:#080c11;color:white}.login button{background:var(--lime);color:#080b0f;font-weight:900}.bad{color:var(--red)}@media(max-width:850px){.app{display:block}aside{display:none}main{padding:20px 15px 90px}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.mobile{display:flex!important;position:fixed;bottom:0;left:0;right:0;background:#0b1015f2;border-top:1px solid var(--line);padding:8px;justify-content:space-around;z-index:5}.mobile button{font-size:11px;padding:7px}}.mobile{display:none}
-</style></head><body><div id="gate" class="gate"><div class="card login"><div class="eyebrow">Private owner access</div><h1>Rivet.</h1><p>Open Mission Control</p><input id="token" type="password" placeholder="Owner key"><button onclick="unlock()">Open Rivet</button><p id="err" class="bad"></p></div></div><div class="app"><aside><div class="brand">Rivet<i>.</i></div><nav id="nav"></nav></aside><main><section id="home" class="view active"><header class="top"><div><div class="eyebrow">Mission control</div><h1>Good afternoon, Jay</h1><p id="summary">Checking Rivet…</p></div><span id="health" class="pill">Connecting</span></header><div class="cards"><div class="card metric"><small>Creators tracked</small><strong id="creators">—</strong></div><div class="card metric"><small>Live now</small><strong id="live">—</strong></div><div class="card metric"><small>Needs review</small><strong id="review">—</strong></div><div class="card metric"><small>Published today</small><strong id="published">—</strong></div></div><div class="section notice" id="attention">Loading attention items…</div><div class="section grid"><div class="card"><h2>Review queue</h2><div id="queue"></div></div><div class="card"><h2>Recent activity</h2><div id="activity"></div></div></div></section><section id="watch" class="view"><div class="top"><div><div class="eyebrow">Watch</div><h1>Live streams</h1><p>Twitch, YouTube and Kick in one place.</p></div></div><div id="streams" class="cards"></div></section><section id="radar" class="view"><div class="top"><div><div class="eyebrow">Radar</div><h1>Creator network</h1></div></div><div id="roster" class="cards"></div></section><section id="money" class="view"><div class="top"><div><div class="eyebrow">Money</div><h1>Revenue center</h1></div></div><div class="notice">No monetization or payout accounts are connected. Rivet will never label views as money received.</div></section><section id="safety" class="view"><div class="top"><div><div class="eyebrow">Safety</div><h1>Strikes and monetization</h1></div></div><div class="notice">Platform safety connections are not configured. Publishing remains disabled.</div></section><section id="audit" class="view"><div class="top"><div><div class="eyebrow">Audit</div><h1>Everything Rivet did</h1></div></div><div class="card" id="audit-list"></div></section></main></div><nav class="mobile" id="mobile"></nav><script>
-const pages=[['home','Home'],['watch','Watch'],['radar','Radar'],['money','Money'],['safety','Safety'],['audit','Audit']];let token=sessionStorage.getItem('rivetToken')||'';const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function nav(){for(const r of [document.querySelector('#nav'),document.querySelector('#mobile')])r.innerHTML=pages.map((p,i)=>`<button class="${i?'':'active'}" data-p="${p[0]}" onclick="show('${p[0]}')">${p[1]}</button>`).join('')}function show(id){document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===id));document.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('active',x.dataset.p===id))}async function api(p){const r=await fetch(p,{headers:{Authorization:`Bearer ${token}`}}),b=await r.json();if(!r.ok)throw Error(b.error);return b}async function unlock(){token=document.querySelector('#token').value.trim();sessionStorage.setItem('rivetToken',token);try{await load();document.querySelector('#gate').classList.add('hidden')}catch(e){document.querySelector('#err').textContent='That owner key did not work.'}}function row(a,b,c=''){return `<div class="item"><div><b>${esc(a)}</b><br><small>${esc(b)}</small></div><span class="badge ${c}">${esc(c||'recorded')}</span></div>`}async function load(){const [s,cs,ch,ca,cl,au,pub]=await Promise.all(['/api/state','/api/creators','/api/channels','/api/candidates','/api/clips','/api/audit','/api/publishing'].map(api)),pending=cl.clips.filter(x=>x.status==='pending_review');creators.textContent=s.creators;live.textContent=s.live_candidates;review.textContent=pending.length;published.textContent=pub.publishing.filter(x=>x.status==='published'&&Date.now()/1000-x.updated_at<86400).length;health.textContent='Engine healthy';health.className='pill good';summary.textContent=s.channels?`${s.channels} channels connected and monitored.`:'The engine is healthy; creator channels still need connection.';attention.innerHTML=s.channels?`${pending.length} clips need review.`:'<b>Setup needed:</b> connect exact creator channels and platform API credentials.';queue.innerHTML=pending.length?pending.map(x=>row(`Clip ${x.id.slice(0,8)}`,`${x.start_seconds.toFixed(1)}–${x.end_seconds.toFixed(1)} seconds`,'review')).join(''):'<p>Nothing waiting.</p>';activity.innerHTML=au.events.slice(0,6).map(e=>row(e.event_type,new Date(e.created_at*1000).toLocaleString())).join('');document.querySelector('#audit-list').innerHTML=au.events.map(e=>row(e.event_type,`${new Date(e.created_at*1000).toLocaleString()} · ${e.entity_id}`)).join('');document.querySelector('#streams').innerHTML=ca.candidates.filter(x=>x.state==='live').map(x=>`<div class="card"><span class="badge good">LIVE · ${esc(x.platform)}</span><h2>${esc(x.creator_name)}</h2><p>${esc(x.title)}</p></div>`).join('')||'<p>No connected creators are live.</p>';document.querySelector('#roster').innerHTML=cs.creators.map(x=>`<div class="card"><span class="badge">${x.priority} tier</span><h2>${esc(x.display_name)}</h2><p>${ch.channels.filter(c=>c.creator_id===x.id).length} platforms connected</p></div>`).join('')}nav();if(token)unlock();setInterval(()=>token&&load().catch(()=>{}),15000);
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080b0f">
+<title>Rivet</title>
+<style>
+:root{color-scheme:dark;
+--bg:#080b0f;
+--panel:#121820;
+--line:#27323e;
+--text:#f4f7f9;
+--muted:#91a0ad;
+--lime:#b8f34b;
+--red:#ff7278;
+--amber:#ffc05c}*{box-sizing:border-box}body{margin:0;
+background:radial-gradient(circle at 80% 0,#1b2935,transparent 35%),var(--bg);
+color:var(--text);
+font:14px/1.45 system-ui,sans-serif}.app{display:grid;
+grid-template-columns:220px 1fr;
+min-height:100vh}aside{border-right:1px solid var(--line);
+padding:24px 14px}.brand{font-size:28px;
+font-weight:900;
+padding:0 12px 22px}.brand i,.eyebrow,.good{color:var(--lime)}nav{display:grid;
+gap:4px}nav button{border:0;
+background:transparent;
+color:var(--muted);
+text-align:left;
+padding:11px 13px;
+border-radius:10px}nav button.active,nav button:hover{background:#18212a;
+color:var(--text)}main{padding:28px 32px 80px;
+max-width:1400px;
+width:100%;
+margin:auto}.top{display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:24px}.top h1{font-size:32px;
+letter-spacing:-1px;
+margin:3px 0}.top p,.card p,small{color:var(--muted)}.eyebrow{font-size:11px;
+font-weight:800;
+letter-spacing:1.4px;
+text-transform:uppercase}.pill,.badge{border:1px solid var(--line);
+border-radius:99px;
+padding:6px 10px}.cards{display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:13px}.card{border:1px solid var(--line);
+background:linear-gradient(145deg,#171f28,var(--panel));
+border-radius:16px;
+padding:17px}.metric strong{display:block;
+font-size:30px;
+margin-top:6px}.section{margin-top:26px}.grid{display:grid;
+grid-template-columns:1.2fr .8fr;
+gap:14px}.item{display:flex;
+justify-content:space-between;
+gap:12px;
+padding:12px 0;
+border-top:1px solid var(--line)}.item:first-child{border:0}.notice{padding:14px;
+border-left:3px solid var(--amber);
+background:#211a10;
+border-radius:5px 12px 12px 5px}.view{display:none}.view.active{display:block}.gate{position:fixed;
+inset:0;
+background:#05080bec;
+display:grid;
+place-items:center;
+z-index:8}.gate.hidden{display:none}.login{width:min(400px,calc(100% - 30px));
+text-align:center}.login input,.login button{width:100%;
+padding:12px;
+margin-top:9px;
+border-radius:10px;
+border:1px solid var(--line)}.login input{background:#080c11;
+color:white}.login button{background:var(--lime);
+color:#080b0f;
+font-weight:900}.bad{color:var(--red)}@media(max-width:850px){.app{display:block}aside{display:none}main{padding:20px 15px 90px}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.mobile{display:flex!important;
+position:fixed;
+bottom:0;
+left:0;
+right:0;
+background:#0b1015f2;
+border-top:1px solid var(--line);
+padding:8px;
+justify-content:space-around;
+z-index:5}.mobile button{font-size:11px;
+padding:7px}}.mobile{display:none}
+.reviewer{display:grid;
+grid-template-columns:minmax(260px,430px) 1fr;
+gap:22px}.player{background:#000;
+border-radius:18px;
+overflow:hidden;
+aspect-ratio:9/16}.player video{width:100%;
+height:100%;
+object-fit:contain}.review-meta textarea{width:100%;
+min-height:90px;
+background:#0b1015;
+border:1px solid var(--line);
+border-radius:10px;
+color:white;
+padding:12px}.actions{display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+margin-top:15px}.actions button{padding:13px;
+border-radius:11px;
+border:1px solid var(--line);
+font-weight:800;
+color:white}.approve{background:#1d6038}.reject{background:#65262a}
+</style>
+</head>
+<body>
+<div id="gate" class="gate">
+<div class="card login">
+<div class="eyebrow">Private owner access</div>
+<h1>Rivet.</h1>
+<p>Open Mission Control</p>
+<input id="token" type="password" placeholder="Owner key">
+<button onclick="unlock()">Open Rivet</button>
+<p id="err" class="bad">
+</p>
+</div>
+</div>
+<div class="app">
+<aside>
+<div class="brand">Rivet<i>.</i>
+</div>
+<nav id="nav">
+</nav>
+</aside>
+<main>
+<section id="home" class="view active">
+<header class="top">
+<div>
+<div class="eyebrow">Mission control</div>
+<h1>Good afternoon, Jay</h1>
+<p id="summary">Checking Rivet…</p>
+</div>
+<span id="health" class="pill">Connecting</span>
+</header>
+<div class="cards">
+<div class="card metric">
+<small>Creators tracked</small>
+<strong id="creators">—</strong>
+</div>
+<div class="card metric">
+<small>Live now</small>
+<strong id="live">—</strong>
+</div>
+<div class="card metric">
+<small>Needs review</small>
+<strong id="review">—</strong>
+</div>
+<div class="card metric">
+<small>Published today</small>
+<strong id="published">—</strong>
+</div>
+</div>
+<div class="section notice" id="attention">Loading attention items…</div>
+<div class="section grid">
+<div class="card">
+<h2>Review queue</h2>
+<div id="queue">
+</div>
+</div>
+<div class="card">
+<h2>Recent activity</h2>
+<div id="activity">
+</div>
+</div>
+</div>
+</section>
+<section id="watch" class="view">
+<div class="top">
+<div>
+<div class="eyebrow">Watch</div>
+<h1>Live streams</h1>
+<p>Twitch, YouTube and Kick in one place.</p>
+</div>
+</div>
+<div id="streams" class="cards">
+</div>
+</section>
+<section id="review-feed" class="view"><div class="top"><div><div class="eyebrow">Review</div><h1>Decision feed</h1><p>Watch the final cut, then approve or reject it.</p></div></div><div id="reviewer"></div></section>
+<section id="radar" class="view">
+<div class="top">
+<div>
+<div class="eyebrow">Radar</div>
+<h1>Creator network</h1>
+</div>
+</div>
+<div id="roster" class="cards">
+</div>
+</section>
+<section id="money" class="view">
+<div class="top">
+<div>
+<div class="eyebrow">Money</div>
+<h1>Revenue center</h1>
+</div>
+</div>
+<div class="notice">No monetization or payout accounts are connected. Rivet will never label views as money received.</div>
+</section>
+<section id="safety" class="view">
+<div class="top">
+<div>
+<div class="eyebrow">Safety</div>
+<h1>Strikes and monetization</h1>
+</div>
+</div>
+<div class="notice">Platform safety connections are not configured. Publishing remains disabled.</div>
+</section>
+<section id="audit" class="view">
+<div class="top">
+<div>
+<div class="eyebrow">Audit</div>
+<h1>Everything Rivet did</h1>
+</div>
+</div>
+<div class="card" id="audit-list">
+</div>
+</section>
+</main>
+</div>
+<nav class="mobile" id="mobile">
+</nav>
+<script>
+const pages=[['home','Home'],['watch','Watch'],['review-feed','Review'],['radar','Radar'],['money','Money'],['safety','Safety'],['audit','Audit']];
+let token=sessionStorage.getItem('rivetToken')||'';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp'+String.fromCharCode(59),'<':'&lt'+String.fromCharCode(59),'>':'&gt'+String.fromCharCode(59),'"':'&quot'+String.fromCharCode(59),"'":'&#39'+String.fromCharCode(59)}[c]));
+function nav(){for(const r of [document.querySelector('#nav'),document.querySelector('#mobile')])r.innerHTML=pages.map((p,i)=>`<button class="${i?'':'active'}" data-p="${p[0]}" onclick="show('${p[0]}')">${p[1]}</button>`).join('')}function show(id){document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===id));
+document.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('active',x.dataset.p===id))}async function api(p,o={}){o.headers={...(o.headers||{}),Authorization:`Bearer ${token}`};const r=await fetch(p,o),b=await r.json();
+if(!r.ok)throw Error(b.error);
+return b}async function unlock(){token=document.querySelector('#token').value.trim();
+sessionStorage.setItem('rivetToken',token);
+try{await load();
+document.querySelector('#gate').classList.add('hidden')}catch(e){document.querySelector('#err').textContent='That owner key did not work.'}}function row(a,b,c=''){return `<div class="item">
+<div>
+<b>${esc(a)}</b>
+<br>
+<small>${esc(b)}</small>
+</div>
+<span class="badge ${c}">${esc(c||'recorded')}</span>
+</div>`}
+let reviewItems=[];
+function renderReview(){const root=document.querySelector('#reviewer'),x=reviewItems[0];if(!x){root.innerHTML='<div class="empty">You are caught up. No clips need a decision.</div>';return}root.innerHTML=`<div class="reviewer"><div class="player"><video controls playsinline data-clip="${esc(x.id)}"></video></div><div class="card review-meta"><span class="badge">Pending review</span><h2>Clip ${esc(x.id.slice(0,8))}</h2><p>${Number(x.start_seconds).toFixed(1)}–${Number(x.end_seconds).toFixed(1)} seconds · highlight score ${Number(x.score).toFixed(2)}</p><textarea id="review-note" placeholder="Why are you approving or rejecting this clip?"></textarea><div class="actions"><button class="reject" onclick="decide('${esc(x.id)}','rejected')">Reject</button><button class="approve" onclick="decide('${esc(x.id)}','approved')">Approve</button></div><p><small>${reviewItems.length} clip${reviewItems.length===1?'':'s'} remaining</small></p></div></div>`;loadPreview(x.id)}
+async function loadPreview(id){const r=await fetch(`/api/clips/${id}/media`,{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)return;const video=document.querySelector(`video[data-clip="${id}"]`);if(video)video.src=URL.createObjectURL(await r.blob())}
+async function decide(id,decision){const note=document.querySelector('#review-note').value.trim();if(!note){alert('Add a review note first.');return}await api(`/api/clips/${id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,note})});await load()}
+async function load(){const [s,cs,ch,ca,cl,au,pub]=await Promise.all(['/api/state','/api/creators','/api/channels','/api/candidates','/api/clips','/api/audit','/api/publishing'].map(p=>api(p))),pending=cl.clips.filter(x=>x.status==='pending_review');reviewItems=pending;renderReview();
+creators.textContent=s.creators;
+live.textContent=s.live_candidates;
+review.textContent=pending.length;
+published.textContent=pub.publishing.filter(x=>x.status==='published'&&Date.now()/1000-x.updated_at<86400).length;
+health.textContent='Engine healthy';
+health.className='pill good';
+summary.textContent=s.channels?`${s.channels} channels connected and monitored.`:'The engine is healthy — creator channels still need connection.';
+attention.innerHTML=s.channels?`${pending.length} clips need review.`:'<b>Setup needed:</b> connect exact creator channels and platform API credentials.';
+queue.innerHTML=pending.length?pending.map(x=>row(`Clip ${x.id.slice(0,8)}`,`${x.start_seconds.toFixed(1)}–${x.end_seconds.toFixed(1)} seconds`,'review')).join(''):'<p>Nothing waiting.</p>';
+activity.innerHTML=au.events.slice(0,6).map(e=>row(e.event_type,new Date(e.created_at*1000).toLocaleString())).join('');
+document.querySelector('#audit-list').innerHTML=au.events.map(e=>row(e.event_type,`${new Date(e.created_at*1000).toLocaleString()} · ${e.entity_id}`)).join('');
+document.querySelector('#streams').innerHTML=ca.candidates.filter(x=>x.state==='live').map(x=>`<div class="card">
+<span class="badge good">LIVE · ${esc(x.platform)}</span>
+<h2>${esc(x.creator_name)}</h2>
+<p>${esc(x.title)}</p>
+</div>`).join('')||'<p>No connected creators are live.</p>';
+document.querySelector('#roster').innerHTML=cs.creators.map(x=>`<div class="card">
+<span class="badge">${x.priority} tier</span>
+<h2>${esc(x.display_name)}</h2>
+<p>${ch.channels.filter(c=>c.creator_id===x.id).length} platforms connected</p>
+</div>`).join('')}nav();
+if(token)unlock();
+setInterval(()=>token&&load().catch(()=>{}),15000);
+
+</script>
+</body>
+</html>
