@@ -221,6 +221,15 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "id": data.get("id"), "creator_id": str(data["creator_id"]), "platform": platform,
                     "platform_key": platform_key, "channel_url": channel_url, "enabled": data.get("enabled") is not False,
                 }))
+            elif path == "/api/monitor/poll":
+                monitor = getattr(self.server, "monitor", None)
+                if monitor is None:
+                    self._json(503, {"ok": False, "error": "monitor_unavailable"})
+                else:
+                    result = monitor.poll_once()
+                    if result["ok"]:
+                        self.store.audit("monitor.requested", "owner", result["platforms"])
+                    self._json(200 if result["ok"] else 409, result)
             elif path == "/api/platform-accounts":
                 platform = str(data.get("platform", "")).lower()
                 if platform not in {"tiktok", "instagram", "youtube", "twitch", "kick", "facebook", "x"}:

@@ -30,6 +30,7 @@ def main() -> None:
     worker = Worker(settings, store)
     monitor = PlatformMonitor(settings, store)
     server = build_server(settings, store)
+    server.monitor = monitor  # type: ignore[attr-defined]
     stop = threading.Event()
     threads = [
         threading.Thread(target=worker.run, name="rivet-worker", daemon=True),

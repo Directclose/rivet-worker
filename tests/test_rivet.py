@@ -92,8 +92,19 @@ class StoreTests(unittest.TestCase):
             "channel_url": "https://www.twitch.tv/kaicenat", "enabled": True,
         })
         settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)
-        PlatformMonitor(settings, self.store).poll_once()
+        result = PlatformMonitor(settings, self.store).poll_once()
+        self.assertTrue(result["ok"])
+        self.assertIn("TWITCH_CLIENT_ID", result["platforms"]["twitch"]["error"])
         self.assertIn("TWITCH_CLIENT_ID", self.store.get_channel(channel["id"])["last_error"])
+
+    def test_monitor_rejects_overlapping_poll(self) -> None:
+        settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)
+        monitor = PlatformMonitor(settings, self.store)
+        monitor.poll_lock.acquire()
+        try:
+            self.assertEqual({"ok": False, "busy": True, "platforms": {}}, monitor.poll_once())
+        finally:
+            monitor.poll_lock.release()
 
     def test_channel_can_be_paused_and_resumed_with_audit_trail(self) -> None:
         channel = self.store.create_channel({

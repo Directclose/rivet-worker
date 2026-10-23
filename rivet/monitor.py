@@ -21,6 +21,7 @@ class PlatformMonitor:
     def __init__(self, settings: Settings, store: Store):
         self.settings, self.store = settings, store
         self.stopped = threading.Event()
+        self.poll_lock = threading.Lock()
 
     def stop(self) -> None:
         self.stopped.set()
@@ -30,25 +31,34 @@ class PlatformMonitor:
             self.poll_once()
             self.stopped.wait(self.settings.monitor_poll_seconds)
 
-    def poll_once(self) -> None:
-        channels = self.store.list_channels(enabled_only=True)
-        for platform in ("twitch", "youtube", "kick"):
-            selected = [item for item in channels if item["platform"] == platform]
-            if not selected:
-                continue
-            try:
-                observations = getattr(self, f"_poll_{platform}")(selected)
-                seen: set[str] = set()
-                for channel_id, observation in observations:
-                    seen.add(observation["external_id"])
-                    self.store.upsert_candidate(channel_id, observation)
-                self.store.close_unseen_live_candidates(platform, seen)
-                for channel in selected:
-                    self.store.mark_channel_checked(channel["id"])
-            except Exception as exc:
-                message = str(exc)[:500]
-                for channel in selected:
-                    self.store.mark_channel_checked(channel["id"], message)
+    def poll_once(self) -> dict[str, Any]:
+        if not self.poll_lock.acquire(blocking=False):
+            return {"ok": False, "busy": True, "platforms": {}}
+        results: dict[str, Any] = {}
+        try:
+            channels = self.store.list_channels(enabled_only=True)
+            for platform in ("twitch", "youtube", "kick"):
+                selected = [item for item in channels if item["platform"] == platform]
+                if not selected:
+                    continue
+                try:
+                    observations = getattr(self, f"_poll_{platform}")(selected)
+                    seen: set[str] = set()
+                    for channel_id, observation in observations:
+                        seen.add(observation["external_id"])
+                        self.store.upsert_candidate(channel_id, observation)
+                    self.store.close_unseen_live_candidates(platform, seen)
+                    for channel in selected:
+                        self.store.mark_channel_checked(channel["id"])
+                    results[platform] = {"channels": len(selected), "observations": len(observations), "error": None}
+                except Exception as exc:
+                    message = str(exc)[:500]
+                    for channel in selected:
+                        self.store.mark_channel_checked(channel["id"], message)
+                    results[platform] = {"channels": len(selected), "observations": 0, "error": message}
+            return {"ok": True, "busy": False, "platforms": results}
+        finally:
+            self.poll_lock.release()
 
     def _poll_twitch(self, channels: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
         if not self.settings.twitch_client_id or not self.settings.twitch_client_secret:
