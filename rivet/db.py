@@ -110,6 +110,32 @@ CREATE TABLE IF NOT EXISTS source_candidates (
   UNIQUE(platform, external_id)
 );
 CREATE INDEX IF NOT EXISTS candidates_state_seen ON source_candidates(state, last_seen_at);
+CREATE TABLE IF NOT EXISTS platform_accounts (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  health_status TEXT NOT NULL,
+  monetization_status TEXT NOT NULL,
+  monetization_json TEXT NOT NULL,
+  last_synced_at REAL,
+  created_at REAL NOT NULL,
+  UNIQUE(platform, handle)
+);
+CREATE TABLE IF NOT EXISTS safety_incidents (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES platform_accounts(id),
+  kind TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  status TEXT NOT NULL,
+  title TEXT NOT NULL,
+  evidence_url TEXT,
+  occurred_at REAL NOT NULL,
+  expires_at REAL,
+  appeal_deadline REAL,
+  details_json TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS safety_status_deadline ON safety_incidents(status, appeal_deadline);
 """
 
 CORE_CREATORS = (
@@ -159,6 +185,68 @@ class Store:
         with self.connect() as db:
             rows = self._rows(db.execute(
                 "SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 500)),)
+            ).fetchall())
+        for row in rows:
+            row["details"] = json.loads(row.pop("details_json"))
+        return rows
+
+    def create_platform_account(self, data: dict[str, Any]) -> dict[str, Any]:
+        account_id, now = data.get("id") or str(uuid.uuid4()), time.time()
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO platform_accounts
+                (id,platform,handle,health_status,monetization_status,monetization_json,last_synced_at,created_at)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                (account_id, data["platform"], data["handle"], data.get("health_status", "unknown"),
+                 data.get("monetization_status", "unknown"), json.dumps(data.get("monetization", {}), sort_keys=True),
+                 data.get("last_synced_at"), now),
+            )
+        self.audit("platform_account.created", account_id, {"platform": data["platform"], "handle": data["handle"]})
+        return self.get_platform_account(account_id)
+
+    def get_platform_account(self, account_id: str) -> dict[str, Any]:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM platform_accounts WHERE id=?", (account_id,)).fetchone()
+        if row is None:
+            raise KeyError(account_id)
+        result = dict(row)
+        result["monetization"] = json.loads(result.pop("monetization_json"))
+        return result
+
+    def list_platform_accounts(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            ids = [row[0] for row in db.execute("SELECT id FROM platform_accounts ORDER BY created_at").fetchall()]
+        return [self.get_platform_account(item) for item in ids]
+
+    def create_safety_incident(self, data: dict[str, Any]) -> dict[str, Any]:
+        incident_id, now = data.get("id") or str(uuid.uuid4()), time.time()
+        self.get_platform_account(data["account_id"])
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO safety_incidents
+                (id,account_id,kind,severity,status,title,evidence_url,occurred_at,expires_at,appeal_deadline,details_json,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (incident_id, data["account_id"], data["kind"], data["severity"], data.get("status", "open"),
+                 data["title"], data.get("evidence_url"), data["occurred_at"], data.get("expires_at"),
+                 data.get("appeal_deadline"), json.dumps(data.get("details", {}), sort_keys=True), now),
+            )
+        self.audit("safety_incident.created", incident_id, {"kind": data["kind"], "severity": data["severity"]})
+        return self.get_safety_incident(incident_id)
+
+    def get_safety_incident(self, incident_id: str) -> dict[str, Any]:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM safety_incidents WHERE id=?", (incident_id,)).fetchone()
+        if row is None:
+            raise KeyError(incident_id)
+        result = dict(row)
+        result["details"] = json.loads(result.pop("details_json"))
+        return result
+
+    def list_safety_incidents(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = self._rows(db.execute(
+                """SELECT i.*,a.platform,a.handle FROM safety_incidents i
+                JOIN platform_accounts a ON a.id=i.account_id ORDER BY i.occurred_at DESC"""
             ).fetchall())
         for row in rows:
             row["details"] = json.loads(row.pop("details_json"))

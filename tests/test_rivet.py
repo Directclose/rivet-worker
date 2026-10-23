@@ -99,6 +99,19 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(events)
         self.assertIsInstance(events[0]["details"], dict)
 
+    def test_platform_safety_and_monetization_ledger(self) -> None:
+        account = self.store.create_platform_account({
+            "platform": "youtube", "handle": "Rivet Clips", "health_status": "healthy",
+            "monetization_status": "not_applied", "monetization": {"subscribers": 0},
+        })
+        incident = self.store.create_safety_incident({
+            "account_id": account["id"], "kind": "copyright_claim", "severity": "warning",
+            "title": "Test claim", "occurred_at": 1000, "details": {"source": "test"},
+        })
+        self.assertEqual("not_applied", self.store.list_platform_accounts()[0]["monetization_status"])
+        self.assertEqual("youtube", self.store.list_safety_incidents()[0]["platform"])
+        self.assertEqual({"source": "test"}, self.store.get_safety_incident(incident["id"])["details"])
+
 
 class AuthorizationTests(unittest.TestCase):
     def test_exact_registered_url_is_required(self) -> None:

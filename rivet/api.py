@@ -4,6 +4,7 @@ import hmac
 import json
 import mimetypes
 import re
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -133,6 +134,12 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif path == "/api/audit":
                 if self._require_auth():
                     self._json(200, {"events": self.store.list_audit_events()})
+            elif path == "/api/platform-accounts":
+                if self._require_auth():
+                    self._json(200, {"accounts": self.store.list_platform_accounts()})
+            elif path == "/api/safety-incidents":
+                if self._require_auth():
+                    self._json(200, {"incidents": self.store.list_safety_incidents()})
             elif path == "/api/jobs":
                 if self._require_auth():
                     self._json(200, {"jobs": self.store.list_jobs()})
@@ -196,6 +203,34 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._json(201, self.store.create_channel({
                     "id": data.get("id"), "creator_id": str(data["creator_id"]), "platform": platform,
                     "platform_key": platform_key, "channel_url": channel_url, "enabled": data.get("enabled") is not False,
+                }))
+            elif path == "/api/platform-accounts":
+                platform = str(data.get("platform", "")).lower()
+                if platform not in {"tiktok", "instagram", "youtube", "twitch", "kick", "facebook", "x"}:
+                    raise ValueError("unsupported platform")
+                handle = str(data.get("handle", "")).strip()
+                if not handle:
+                    raise ValueError("handle is required")
+                self._json(201, self.store.create_platform_account({
+                    "platform": platform, "handle": handle, "health_status": "unknown",
+                    "monetization_status": "unknown", "monetization": {},
+                }))
+            elif path == "/api/safety-incidents":
+                kind = str(data.get("kind", "")).lower()
+                severity = str(data.get("severity", "")).lower()
+                if kind not in {"copyright_claim", "copyright_strike", "community_strike", "content_removal", "monetization_restriction", "account_warning", "audio_muted", "age_restriction"}:
+                    raise ValueError("unsupported safety incident kind")
+                if severity not in {"info", "warning", "critical"}:
+                    raise ValueError("severity must be info, warning, or critical")
+                title = str(data.get("title", "")).strip()
+                if not title:
+                    raise ValueError("title is required")
+                self._json(201, self.store.create_safety_incident({
+                    "account_id": str(data.get("account_id", "")), "kind": kind, "severity": severity,
+                    "title": title, "status": "open", "evidence_url": data.get("evidence_url"),
+                    "occurred_at": float(data.get("occurred_at") or time.time()),
+                    "expires_at": data.get("expires_at"), "appeal_deadline": data.get("appeal_deadline"),
+                    "details": data.get("details") or {},
                 }))
             elif path == "/api/jobs":
                 source = self.store.get_source(str(data.get("source_id", "")))
