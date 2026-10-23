@@ -32,6 +32,10 @@ python -m unittest discover -s tests -v
 python -m compileall -q rivet
 ```
 
+`tests/fixtures/rivet-owned-demo.mp4` is a synthetic, repository-owned media
+fixture generated from FFmpeg test sources. It exists only for authorized
+deployment smoke tests and may be ingested without third-party rights.
+
 ## Controlled API flow
 
 All mutations require `Authorization: Bearer $RIVET_ADMIN_TOKEN`.
