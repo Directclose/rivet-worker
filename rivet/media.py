@@ -133,7 +133,7 @@ def render_vertical(source: Path, destination: Path, candidate: Candidate, capti
         video_filter += f",subtitles='{escaped}':force_style='FontSize=18,Outline=2,Alignment=2,MarginV=110'"
     _run([
         "ffmpeg", "-y", "-hide_banner", "-ss", str(candidate.start), "-to", str(candidate.end),
-        "-i", str(source), "-vf", video_filter, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-i", str(source), "-vf", video_filter, "-c:v", "libx264", "-preset", "veryfast", "-threads", "1", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(destination),
     ])
     if not destination.exists() or destination.stat().st_size == 0:

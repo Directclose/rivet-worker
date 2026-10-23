@@ -6,7 +6,7 @@ Rivet turns authorized long-form recordings into reviewable vertical clip candid
 
 - A source cannot be queued unless it has an explicit rights note, ingestion authorization, an exact HTTPS URL, and a matching public host.
 - The worker downloads only that exact registered URL and rejects redirects, private-network destinations, custom ports, credentials in URLs, oversized bodies, and unsupported content types.
-- FFmpeg finds dense audio sections, renders up to three 1080x1920 H.264/AAC candidates, and burns supplied SRT captions.
+- FFmpeg finds dense audio sections, renders up to three 1080x1920 H.264/AAC candidates with a memory-bounded encoder, and burns supplied SRT captions.
 - Every clip stops in `pending_review`. An authenticated reviewer must approve it with a note.
 - Publishing additionally requires republishing rights, an enabled destination, an approval note, and the global `RIVET_PUBLISH_EXECUTION_ENABLED=true` switch.
 - Publishing is not enabled by the included Render configuration. A `manual_export` destination creates a manifest for an owner upload; a `webhook` destination is an integration seam, not proof of platform publication.
