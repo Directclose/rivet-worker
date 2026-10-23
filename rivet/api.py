@@ -98,7 +98,16 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif path == "/ready":
                 runtime = check_runtime()
                 ready = runtime["ffmpeg"] and runtime["probe_available"] and self.settings.db_path.parent.exists()
-                self._json(200 if ready else 503, {"ok": ready, "runtime": runtime, "persistent_path": str(self.settings.data_dir)})
+                self._json(
+                    200 if ready else 503,
+                    {
+                        "ok": ready,
+                        "runtime": runtime,
+                        "data_path": str(self.settings.data_dir),
+                        "storage_durability": self.settings.storage_durability,
+                        "durable_storage": self.settings.storage_durability == "persistent",
+                    },
+                )
             elif path == "/api/state":
                 self._json(200, {
                     "ok": True, "service": "rivet", "version": __version__, **self.store.counts(),

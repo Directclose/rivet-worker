@@ -23,7 +23,7 @@ export RIVET_ADMIN_TOKEN="replace-with-a-long-random-value"
 python -m rivet.service
 ```
 
-Readiness is available at `GET /ready`. `GET /health` only confirms that the HTTP process is responding.
+Readiness is available at `GET /ready`. It reports FFmpeg capability and the configured storage durability separately. `GET /health` only confirms that the HTTP process is responding.
 
 Run the dependency-free test suite:
 

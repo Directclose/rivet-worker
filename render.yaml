@@ -16,6 +16,8 @@ services:
     envVars:
       - key: RIVET_DATA_DIR
         value: /var/lib/rivet
+      - key: RIVET_STORAGE_DURABILITY
+        value: persistent
       - key: RIVET_ADMIN_TOKEN
         generateValue: true
       - key: RIVET_PUBLISH_EXECUTION_ENABLED

@@ -19,6 +19,7 @@ class Settings:
     max_source_bytes: int
     worker_poll_seconds: float
     publish_execution_enabled: bool
+    storage_durability: str = "unknown"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,6 +33,7 @@ class Settings:
             max_source_bytes=int(os.getenv("RIVET_MAX_SOURCE_BYTES", str(2 * 1024**3))),
             worker_poll_seconds=float(os.getenv("RIVET_WORKER_POLL_SECONDS", "2")),
             publish_execution_enabled=_bool("RIVET_PUBLISH_EXECUTION_ENABLED"),
+            storage_durability=os.getenv("RIVET_STORAGE_DURABILITY", "unknown").strip().lower(),
         )
 
     def prepare(self) -> None:
