@@ -54,10 +54,24 @@ def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def probe_duration(path: Path) -> float:
-    result = _run([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)
-    ])
-    duration = float(json.loads(result.stdout)["format"]["duration"])
+    if shutil.which("ffprobe"):
+        result = _run([
+            "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)
+        ])
+        duration = float(json.loads(result.stdout)["format"]["duration"])
+    else:
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-i", str(path), "-f", "null", "-"],
+                text=True, capture_output=True, timeout=60,
+            )
+        except FileNotFoundError as exc:
+            raise MediaError("required executable is missing: ffmpeg") from exc
+        match = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
+        if not match:
+            raise MediaError("could not determine source duration")
+        hours, minutes, seconds = match.groups()
+        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
     if duration <= 0:
         raise MediaError("source duration is invalid")
     return duration
@@ -127,5 +141,7 @@ def render_vertical(source: Path, destination: Path, candidate: Candidate, capti
 
 
 def check_runtime() -> dict[str, bool]:
-    return {"ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe"))}
+    ffmpeg = bool(shutil.which("ffmpeg"))
+    ffprobe = bool(shutil.which("ffprobe"))
+    return {"ffmpeg": ffmpeg, "ffprobe": ffprobe, "probe_available": ffprobe or ffmpeg}
 

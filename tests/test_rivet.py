@@ -8,7 +8,7 @@ from unittest.mock import patch
 from rivet.authorization import AuthorizationError, authorize_source
 from rivet.config import Settings
 from rivet.db import Store
-from rivet.media import detect_highlights, validate_srt
+from rivet.media import detect_highlights, probe_duration, validate_srt
 from rivet.publisher import dispatch
 
 
@@ -79,6 +79,12 @@ class MediaTests(unittest.TestCase):
         candidates = detect_highlights(Path("source.mp4"), 120, limit=3)
         self.assertEqual(2, len(candidates))
         self.assertTrue(all(item.end - item.start >= 12 for item in candidates))
+
+    @patch("rivet.media.shutil.which", return_value=None)
+    @patch("rivet.media.subprocess.run")
+    def test_duration_falls_back_to_ffmpeg(self, run, _which) -> None:
+        run.return_value.stderr = "Duration: 00:01:02.50, start: 0.0"
+        self.assertEqual(62.5, probe_duration(Path("source.mp4")))
 
 
 if __name__ == "__main__":
