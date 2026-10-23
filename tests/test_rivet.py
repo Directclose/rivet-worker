@@ -94,6 +94,11 @@ class StoreTests(unittest.TestCase):
         PlatformMonitor(settings, self.store).poll_once()
         self.assertIn("TWITCH_CLIENT_ID", self.store.get_channel(channel["id"])["last_error"])
 
+    def test_audit_events_are_readable_and_structured(self) -> None:
+        events = self.store.list_audit_events()
+        self.assertTrue(events)
+        self.assertIsInstance(events[0]["details"], dict)
+
 
 class AuthorizationTests(unittest.TestCase):
     def test_exact_registered_url_is_required(self) -> None:

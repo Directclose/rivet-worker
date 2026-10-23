@@ -125,6 +125,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif path == "/api/candidates":
                 if self._require_auth():
                     self._json(200, {"candidates": self.store.list_candidates()})
+            elif path == "/api/audit":
+                if self._require_auth():
+                    self._json(200, {"events": self.store.list_audit_events()})
             elif path == "/api/jobs":
                 if self._require_auth():
                     self._json(200, {"jobs": self.store.list_jobs()})

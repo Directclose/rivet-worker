@@ -155,6 +155,15 @@ class Store:
                 (event_type, entity_id, json.dumps(details, sort_keys=True), time.time()),
             )
 
+    def list_audit_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = self._rows(db.execute(
+                "SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 500)),)
+            ).fetchall())
+        for row in rows:
+            row["details"] = json.loads(row.pop("details_json"))
+        return rows
+
     def seed_core_creators(self) -> None:
         now = time.time()
         with self.connect() as db:
