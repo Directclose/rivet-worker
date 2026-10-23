@@ -299,6 +299,17 @@ class Store:
                 {where} ORDER BY r.display_name,c.platform"""
             ).fetchall())
 
+    def set_channel_enabled(self, channel_id: str, enabled: bool) -> dict[str, Any]:
+        with self.connect() as db:
+            result = db.execute(
+                "UPDATE creator_channels SET enabled=? WHERE id=?",
+                (int(enabled), channel_id),
+            )
+        if result.rowcount != 1:
+            raise KeyError(channel_id)
+        self.audit("channel.enabled" if enabled else "channel.paused", channel_id, {"enabled": enabled})
+        return self.get_channel(channel_id)
+
     def mark_channel_checked(self, channel_id: str, error: str | None = None) -> None:
         with self.connect() as db:
             db.execute(

@@ -95,6 +95,18 @@ class StoreTests(unittest.TestCase):
         PlatformMonitor(settings, self.store).poll_once()
         self.assertIn("TWITCH_CLIENT_ID", self.store.get_channel(channel["id"])["last_error"])
 
+    def test_channel_can_be_paused_and_resumed_with_audit_trail(self) -> None:
+        channel = self.store.create_channel({
+            "creator_id": "kai-cenat", "platform": "twitch", "platform_key": "kaicenat",
+            "channel_url": "https://www.twitch.tv/kaicenat", "enabled": True,
+        })
+        self.assertEqual(0, self.store.set_channel_enabled(channel["id"], False)["enabled"])
+        self.assertEqual([], self.store.list_channels(enabled_only=True))
+        self.assertEqual(1, self.store.set_channel_enabled(channel["id"], True)["enabled"])
+        event_types = {event["event_type"] for event in self.store.list_audit_events()}
+        self.assertIn("channel.paused", event_types)
+        self.assertIn("channel.enabled", event_types)
+
     def test_audit_events_are_readable_and_structured(self) -> None:
         events = self.store.list_audit_events()
         self.assertTrue(events)

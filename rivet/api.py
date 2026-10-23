@@ -4,6 +4,7 @@ import hmac
 import json
 import mimetypes
 import re
+import sqlite3
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -279,9 +280,30 @@ class ApiHandler(BaseHTTPRequestHandler):
                 ))
             else:
                 self._json(404, {"ok": False, "error": "not_found", "path": path})
+        except sqlite3.IntegrityError:
+            self._json(409, {"ok": False, "error": "channel_conflict", "detail": "That platform channel is already connected."})
         except KeyError as exc:
             self._json(404, {"ok": False, "error": "missing_resource", "detail": str(exc)})
         except (ValueError, AuthorizationError, PermissionError) as exc:
+            self._json(400, {"ok": False, "error": "request_rejected", "detail": str(exc)})
+        except Exception as exc:
+            self._json(500, {"ok": False, "error": "internal_error", "detail": str(exc)[:500]})
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        if not self._require_auth():
+            return
+        path = urlparse(self.path).path
+        try:
+            data = self._body()
+            if match := re.fullmatch(r"/api/channels/([^/]+)", path):
+                if not isinstance(data.get("enabled"), bool):
+                    raise ValueError("enabled must be true or false")
+                self._json(200, self.store.set_channel_enabled(match.group(1), data["enabled"]))
+            else:
+                self._json(404, {"ok": False, "error": "not_found", "path": path})
+        except KeyError as exc:
+            self._json(404, {"ok": False, "error": "missing_resource", "detail": str(exc)})
+        except ValueError as exc:
             self._json(400, {"ok": False, "error": "request_rejected", "detail": str(exc)})
         except Exception as exc:
             self._json(500, {"ok": False, "error": "internal_error", "detail": str(exc)[:500]})
