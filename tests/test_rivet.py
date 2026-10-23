@@ -86,6 +86,27 @@ class StoreTests(unittest.TestCase):
         self.store.close_unseen_live_candidates("twitch", set())
         self.assertEqual("ended", self.store.list_candidates()[0]["state"])
 
+    def test_authorized_candidate_can_queue_ingestion_only_once(self) -> None:
+        channel = self.store.create_channel({
+            "creator_id": "kai-cenat", "platform": "twitch", "platform_key": "kaicenat",
+            "channel_url": "https://www.twitch.tv/kaicenat", "enabled": True,
+        })
+        candidate = self.store.upsert_candidate(channel["id"], {
+            "platform": "twitch", "external_id": "stream-capture", "title": "Authorized archive",
+            "state": "ended", "page_url": channel["channel_url"], "raw": {},
+        })
+        job = self.store.queue_candidate_ingestion(
+            candidate["id"], "https://media.example.com/archive.mp4", "media.example.com",
+            "Creator editor supplied this archive",
+        )
+        self.assertEqual("queued", job["status"])
+        self.assertEqual(job["id"], self.store.get_candidate(candidate["id"])["ingestion_job_id"])
+        self.assertEqual(0, self.store.get_source(job["source_id"])["republish_authorized"])
+        with self.assertRaisesRegex(ValueError, "already has"):
+            self.store.queue_candidate_ingestion(
+                candidate["id"], "https://media.example.com/archive.mp4", "media.example.com", "duplicate"
+            )
+
     def test_monitor_records_missing_credentials_without_crashing(self) -> None:
         channel = self.store.create_channel({
             "creator_id": "kai-cenat", "platform": "twitch", "platform_key": "kaicenat",

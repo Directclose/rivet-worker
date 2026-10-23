@@ -230,6 +230,21 @@ class ApiHandler(BaseHTTPRequestHandler):
                     if result["ok"]:
                         self.store.audit("monitor.requested", "owner", result["platforms"])
                     self._json(200 if result["ok"] else 409, result)
+            elif match := re.fullmatch(r"/api/candidates/([^/]+)/ingest", path):
+                media_url = str(data.get("media_url", "")).strip()
+                rights_note = str(data.get("rights_note", "")).strip()
+                parsed = urlparse(media_url)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.port not in (None, 443):
+                    raise ValueError("media_url must be a credential-free HTTPS URL on the standard port")
+                if not rights_note:
+                    raise ValueError("rights_note describing the authorized media handoff is required")
+                captions = data.get("captions_srt")
+                if captions is not None:
+                    validate_srt(str(captions))
+                self._json(201, self.store.queue_candidate_ingestion(
+                    match.group(1), media_url, parsed.hostname.lower(), rights_note,
+                    str(captions) if captions is not None else None,
+                ))
             elif path == "/api/platform-accounts":
                 platform = str(data.get("platform", "")).lower()
                 if platform not in {"tiktok", "instagram", "youtube", "twitch", "kick", "facebook", "x"}:

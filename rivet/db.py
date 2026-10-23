@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS source_candidates (
   started_at TEXT,
   viewer_count INTEGER,
   raw_json TEXT NOT NULL,
+  ingestion_job_id TEXT REFERENCES jobs(id),
   first_seen_at REAL NOT NULL,
   last_seen_at REAL NOT NULL,
   UNIQUE(platform, external_id)
@@ -158,6 +159,9 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(source_candidates)").fetchall()}
+            if "ingestion_job_id" not in columns:
+                db.execute("ALTER TABLE source_candidates ADD COLUMN ingestion_job_id TEXT REFERENCES jobs(id)")
         self.seed_core_creators()
 
     @contextmanager
@@ -368,6 +372,60 @@ class Store:
                 FROM source_candidates s JOIN creator_channels c ON c.id=s.channel_id
                 JOIN creators r ON r.id=c.creator_id ORDER BY s.last_seen_at DESC LIMIT 500"""
             ).fetchall())
+
+    def get_candidate(self, candidate_id: str) -> dict[str, Any]:
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT s.*,c.creator_id,r.display_name AS creator_name,r.ingest_authorized,
+                r.republish_authorized,r.rights_note AS creator_rights_note
+                FROM source_candidates s JOIN creator_channels c ON c.id=s.channel_id
+                JOIN creators r ON r.id=c.creator_id WHERE s.id=?""",
+                (candidate_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(candidate_id)
+        return dict(row)
+
+    def queue_candidate_ingestion(self, candidate_id: str, media_url: str, allowed_host: str,
+                                  rights_note: str, captions_srt: str | None = None) -> dict[str, Any]:
+        now, job_id = time.time(), str(uuid.uuid4())
+        source_id = f"candidate-{candidate_id}"
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            candidate = db.execute(
+                """SELECT s.*,c.creator_id,r.display_name AS creator_name,r.ingest_authorized,
+                r.republish_authorized,r.rights_note AS creator_rights_note
+                FROM source_candidates s JOIN creator_channels c ON c.id=s.channel_id
+                JOIN creators r ON r.id=c.creator_id WHERE s.id=?""",
+                (candidate_id,),
+            ).fetchone()
+            if candidate is None:
+                db.execute("ROLLBACK")
+                raise KeyError(candidate_id)
+            if candidate["ingestion_job_id"]:
+                db.execute("ROLLBACK")
+                raise ValueError("candidate already has an ingestion job")
+            if not candidate["ingest_authorized"]:
+                db.execute("ROLLBACK")
+                raise PermissionError("creator is not authorized for ingestion")
+            combined_note = f"{candidate['creator_rights_note']} | Media handoff evidence: {rights_note}"
+            db.execute(
+                """INSERT INTO sources
+                (id,name,source_url,allowed_host,ingest_authorized,republish_authorized,rights_note,created_at)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                (source_id, f"{candidate['creator_name']} - {candidate['title']}", media_url, allowed_host,
+                 1, candidate["republish_authorized"], combined_note, now),
+            )
+            db.execute(
+                "INSERT INTO jobs(id,source_id,source_url,captions_srt,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (job_id, source_id, media_url, captions_srt, "queued", now, now),
+            )
+            db.execute("UPDATE source_candidates SET media_url=?,ingestion_job_id=? WHERE id=?",
+                       (media_url, job_id, candidate_id))
+            db.execute("COMMIT")
+        self.audit("candidate.ingestion_queued", candidate_id, {"job_id": job_id, "source_id": source_id})
+        self.audit("job.queued", job_id, {"source_id": source_id, "candidate_id": candidate_id})
+        return self.get_job(job_id)
 
     def create_source(self, data: dict[str, Any]) -> dict[str, Any]:
         source_id = data.get("id") or str(uuid.uuid4())
