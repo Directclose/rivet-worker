@@ -2,6 +2,8 @@
 
 Rivet turns authorized long-form recordings into reviewable vertical clip candidates. This repository continues the deployed `v5-control-plane` prototype with a persistent SQLite ledger, a real FFmpeg processing worker, and fail-closed review and publishing gates.
 
+Rivet 0.7 adds a persistent creator radar for the authorized AMP-adjacent roster. It polls exact Twitch logins, YouTube channel IDs, and Kick slugs through the platforms' official APIs, records live candidates, and marks streams ended when they disappear. Exact channel mappings and platform app credentials must be configured before monitoring is active; names alone are deliberately not treated as verified accounts.
+
 ## Verified scope
 
 - A source cannot be queued unless it has an explicit rights note, ingestion authorization, an exact HTTPS URL, and a matching public host.
@@ -13,6 +15,8 @@ Rivet turns authorized long-form recordings into reviewable vertical clip candid
 
 The detector is signal-based. It identifies dense non-silent segments; it does not yet understand semantic quality or automatically transcribe speech.
 
+The platform APIs expose channel/live metadata, not a universal downloadable recording. A detected stream therefore does not bypass media-access controls. Automatic media ingestion requires an authorized direct media URL or a platform-specific creator/editor OAuth integration; publishing remains separately review-gated.
+
 ## Run locally
 
 Python 3.11+ is required. The worker also requires `ffmpeg` and `ffprobe`.
@@ -20,6 +24,10 @@ Python 3.11+ is required. The worker also requires `ffmpeg` and `ffprobe`.
 ```bash
 export RIVET_DATA_DIR="$PWD/data"
 export RIVET_ADMIN_TOKEN="replace-with-a-long-random-value"
+# Add the official API credentials for the platforms you monitor:
+# TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET
+# YOUTUBE_API_KEY
+# KICK_CLIENT_ID / KICK_CLIENT_SECRET
 python -m rivet.service
 ```
 
@@ -39,6 +47,13 @@ deployment smoke tests and may be ingested without third-party rights.
 ## Controlled API flow
 
 All mutations require `Authorization: Bearer $RIVET_ADMIN_TOKEN`.
+
+Streamer radar endpoints:
+
+- `GET /api/creators` returns the seeded authorized roster.
+- `POST /api/channels` registers one exact Twitch login, YouTube channel ID, or Kick slug and its official HTTPS channel URL.
+- `GET /api/channels` reports the last poll and any credential/API error.
+- `GET /api/candidates` returns detected live and ended stream records.
 
 1. `POST /api/sources` with `name`, `source_url`, `rights_note`, `ingest_authorized`, and `republish_authorized`.
 2. `POST /api/jobs` with the source ID and optional `captions_srt`.

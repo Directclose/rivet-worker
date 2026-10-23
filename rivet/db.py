@@ -72,7 +72,58 @@ CREATE TABLE IF NOT EXISTS audit_events (
   details_json TEXT NOT NULL,
   created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS creators (
+  id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  priority TEXT NOT NULL,
+  ingest_authorized INTEGER NOT NULL CHECK (ingest_authorized IN (0,1)),
+  republish_authorized INTEGER NOT NULL CHECK (republish_authorized IN (0,1)),
+  rights_note TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS creator_channels (
+  id TEXT PRIMARY KEY,
+  creator_id TEXT NOT NULL REFERENCES creators(id),
+  platform TEXT NOT NULL CHECK (platform IN ('twitch','youtube','kick')),
+  platform_key TEXT NOT NULL,
+  channel_url TEXT NOT NULL,
+  enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+  last_checked_at REAL,
+  last_error TEXT,
+  created_at REAL NOT NULL,
+  UNIQUE(platform, platform_key)
+);
+CREATE TABLE IF NOT EXISTS source_candidates (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL REFERENCES creator_channels(id),
+  platform TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  page_url TEXT NOT NULL,
+  media_url TEXT,
+  state TEXT NOT NULL,
+  started_at TEXT,
+  viewer_count INTEGER,
+  raw_json TEXT NOT NULL,
+  first_seen_at REAL NOT NULL,
+  last_seen_at REAL NOT NULL,
+  UNIQUE(platform, external_id)
+);
+CREATE INDEX IF NOT EXISTS candidates_state_seen ON source_candidates(state, last_seen_at);
 """
+
+CORE_CREATORS = (
+    ("kai-cenat", "Kai Cenat", "S"), ("duke-dennis", "Duke Dennis", "S"),
+    ("agent-00", "Agent 00", "S"), ("reggie", "Reggie", "S"),
+    ("rakai", "RaKai", "S"), ("reemknocks", "Reemknocks", "A"),
+    ("madi", "Madi", "A"), ("cuffem", "Cuffem", "A"),
+    ("plaqueboymax", "PlaqueBoyMax", "S"), ("raud", "Raud", "A"),
+    ("silky", "Silky", "A"), ("dezz", "Dezz", "A"),
+    ("tylil", "Tylil", "S"), ("fanum", "Fanum", "A"),
+    ("neon", "Neon", "A"), ("kaleel", "Kaleel", "B"),
+    ("clover-boys", "Clover Boys", "B"), ("marlon", "Marlon", "B"),
+    ("jason-the-ween", "JasonTheWeen", "B"),
+)
 
 
 class Store:
@@ -81,6 +132,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+        self.seed_core_creators()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -102,6 +154,112 @@ class Store:
                 "INSERT INTO audit_events(event_type,entity_id,details_json,created_at) VALUES(?,?,?,?)",
                 (event_type, entity_id, json.dumps(details, sort_keys=True), time.time()),
             )
+
+    def seed_core_creators(self) -> None:
+        now = time.time()
+        with self.connect() as db:
+            for creator_id, name, priority in CORE_CREATORS:
+                db.execute(
+                    """INSERT OR IGNORE INTO creators
+                    (id,display_name,priority,ingest_authorized,republish_authorized,rights_note,created_at)
+                    VALUES(?,?,?,?,?,?,?)""",
+                    (creator_id, name, priority, 1, 0, "Owner stated clipping permission in Build Rivet Business (7)", now),
+                )
+
+    def list_creators(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return self._rows(db.execute(
+                "SELECT * FROM creators ORDER BY CASE priority WHEN 'S' THEN 0 WHEN 'A' THEN 1 ELSE 2 END, display_name"
+            ).fetchall())
+
+    def create_channel(self, data: dict[str, Any]) -> dict[str, Any]:
+        channel_id, now = data.get("id") or str(uuid.uuid4()), time.time()
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO creator_channels
+                (id,creator_id,platform,platform_key,channel_url,enabled,created_at)
+                VALUES(?,?,?,?,?,?,?)""",
+                (channel_id, data["creator_id"], data["platform"], data["platform_key"],
+                 data["channel_url"], int(bool(data.get("enabled", True))), now),
+            )
+        self.audit("channel.created", channel_id, {"platform": data["platform"], "creator_id": data["creator_id"]})
+        return self.get_channel(channel_id)
+
+    def get_channel(self, channel_id: str) -> dict[str, Any]:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM creator_channels WHERE id=?", (channel_id,)).fetchone()
+        if row is None:
+            raise KeyError(channel_id)
+        return dict(row)
+
+    def list_channels(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+        where = "WHERE c.enabled=1" if enabled_only else ""
+        with self.connect() as db:
+            return self._rows(db.execute(
+                f"""SELECT c.*, r.display_name AS creator_name, r.priority,
+                r.ingest_authorized, r.republish_authorized
+                FROM creator_channels c JOIN creators r ON r.id=c.creator_id
+                {where} ORDER BY r.display_name,c.platform"""
+            ).fetchall())
+
+    def mark_channel_checked(self, channel_id: str, error: str | None = None) -> None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE creator_channels SET last_checked_at=?,last_error=? WHERE id=?",
+                (time.time(), error, channel_id),
+            )
+
+    def upsert_candidate(self, channel_id: str, item: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        candidate_id = str(uuid.uuid4())
+        with self.connect() as db:
+            existing = db.execute(
+                "SELECT id FROM source_candidates WHERE platform=? AND external_id=?",
+                (item["platform"], item["external_id"]),
+            ).fetchone()
+            db.execute(
+                """INSERT INTO source_candidates
+                (id,channel_id,platform,external_id,title,page_url,media_url,state,started_at,viewer_count,raw_json,first_seen_at,last_seen_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(platform,external_id) DO UPDATE SET
+                  title=excluded.title,page_url=excluded.page_url,media_url=excluded.media_url,
+                  state=excluded.state,started_at=excluded.started_at,viewer_count=excluded.viewer_count,
+                  raw_json=excluded.raw_json,last_seen_at=excluded.last_seen_at""",
+                (candidate_id, channel_id, item["platform"], item["external_id"], item.get("title", ""),
+                 item["page_url"], item.get("media_url"), item["state"], item.get("started_at"),
+                 item.get("viewer_count"), json.dumps(item.get("raw", {}), sort_keys=True), now, now),
+            )
+            row = db.execute(
+                "SELECT * FROM source_candidates WHERE platform=? AND external_id=?",
+                (item["platform"], item["external_id"]),
+            ).fetchone()
+        result = dict(row)
+        if existing is None:
+            self.audit("candidate.observed", result["id"], {"platform": item["platform"], "state": item["state"]})
+        return result
+
+    def close_unseen_live_candidates(self, platform: str, seen_external_ids: set[str]) -> None:
+        with self.connect() as db:
+            if seen_external_ids:
+                placeholders = ",".join("?" for _ in seen_external_ids)
+                db.execute(
+                    f"""UPDATE source_candidates SET state='ended',last_seen_at=?
+                    WHERE platform=? AND state='live' AND external_id NOT IN ({placeholders})""",
+                    (time.time(), platform, *sorted(seen_external_ids)),
+                )
+            else:
+                db.execute(
+                    "UPDATE source_candidates SET state='ended',last_seen_at=? WHERE platform=? AND state='live'",
+                    (time.time(), platform),
+                )
+
+    def list_candidates(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return self._rows(db.execute(
+                """SELECT s.*, c.creator_id, r.display_name AS creator_name
+                FROM source_candidates s JOIN creator_channels c ON c.id=s.channel_id
+                JOIN creators r ON r.id=c.creator_id ORDER BY s.last_seen_at DESC LIMIT 500"""
+            ).fetchall())
 
     def create_source(self, data: dict[str, Any]) -> dict[str, Any]:
         source_id = data.get("id") or str(uuid.uuid4())
@@ -315,4 +473,7 @@ class Store:
                 "clips": db.execute("SELECT count(*) FROM clips").fetchone()[0],
                 "publishing_outbox": db.execute("SELECT count(*) FROM publishing_outbox").fetchone()[0],
                 "queued_jobs": db.execute("SELECT count(*) FROM jobs WHERE status='queued'").fetchone()[0],
+                "creators": db.execute("SELECT count(*) FROM creators").fetchone()[0],
+                "channels": db.execute("SELECT count(*) FROM creator_channels WHERE enabled=1").fetchone()[0],
+                "live_candidates": db.execute("SELECT count(*) FROM source_candidates WHERE state='live'").fetchone()[0],
             }

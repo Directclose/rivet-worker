@@ -10,6 +10,7 @@ from rivet.config import Settings
 from rivet.db import Store
 from rivet.media import detect_highlights, probe_duration, validate_srt
 from rivet.publisher import dispatch
+from rivet.monitor import PlatformMonitor
 
 
 class StoreTests(unittest.TestCase):
@@ -62,6 +63,36 @@ class StoreTests(unittest.TestCase):
         settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)
         with self.assertRaises(PermissionError):
             dispatch(self.store, settings, {"id": "x", "clip_id": "x", "destination_id": "x", "approval_note": "x"})
+
+    def test_core_roster_and_channel_candidates_are_persistent(self) -> None:
+        creators = self.store.list_creators()
+        self.assertEqual(19, len(creators))
+        self.assertIn("Kai Cenat", {item["display_name"] for item in creators})
+        channel = self.store.create_channel({
+            "creator_id": "kai-cenat", "platform": "twitch", "platform_key": "kaicenat",
+            "channel_url": "https://www.twitch.tv/kaicenat", "enabled": True,
+        })
+        first = self.store.upsert_candidate(channel["id"], {
+            "platform": "twitch", "external_id": "stream-1", "title": "Live", "state": "live",
+            "page_url": channel["channel_url"], "viewer_count": 100, "raw": {"id": "stream-1"},
+        })
+        second = self.store.upsert_candidate(channel["id"], {
+            "platform": "twitch", "external_id": "stream-1", "title": "Still live", "state": "live",
+            "page_url": channel["channel_url"], "viewer_count": 200, "raw": {"id": "stream-1"},
+        })
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(200, self.store.list_candidates()[0]["viewer_count"])
+        self.store.close_unseen_live_candidates("twitch", set())
+        self.assertEqual("ended", self.store.list_candidates()[0]["state"])
+
+    def test_monitor_records_missing_credentials_without_crashing(self) -> None:
+        channel = self.store.create_channel({
+            "creator_id": "kai-cenat", "platform": "twitch", "platform_key": "kaicenat",
+            "channel_url": "https://www.twitch.tv/kaicenat", "enabled": True,
+        })
+        settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)
+        PlatformMonitor(settings, self.store).poll_once()
+        self.assertIn("TWITCH_CLIENT_ID", self.store.get_channel(channel["id"])["last_error"])
 
 
 class AuthorizationTests(unittest.TestCase):

@@ -116,6 +116,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif path == "/api/sources":
                 if self._require_auth():
                     self._json(200, {"sources": self.store.list_sources()})
+            elif path == "/api/creators":
+                if self._require_auth():
+                    self._json(200, {"creators": self.store.list_creators()})
+            elif path == "/api/channels":
+                if self._require_auth():
+                    self._json(200, {"channels": self.store.list_channels()})
+            elif path == "/api/candidates":
+                if self._require_auth():
+                    self._json(200, {"candidates": self.store.list_candidates()})
             elif path == "/api/jobs":
                 if self._require_auth():
                     self._json(200, {"jobs": self.store.list_jobs()})
@@ -158,6 +167,21 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "rights_note": str(data["rights_note"]).strip(),
                 })
                 self._json(201, source)
+            elif path == "/api/channels":
+                platform = str(data.get("platform", "")).lower()
+                if platform not in {"twitch", "youtube", "kick"}:
+                    raise ValueError("platform must be twitch, youtube, or kick")
+                platform_key = str(data.get("platform_key", "")).strip()
+                channel_url = str(data.get("channel_url", "")).strip()
+                parsed = urlparse(channel_url)
+                if not platform_key or parsed.scheme != "https" or not parsed.hostname:
+                    raise ValueError("platform_key and an HTTPS channel_url are required")
+                if str(data.get("creator_id", "")) not in {c["id"] for c in self.store.list_creators()}:
+                    raise KeyError(str(data.get("creator_id", "")))
+                self._json(201, self.store.create_channel({
+                    "id": data.get("id"), "creator_id": str(data["creator_id"]), "platform": platform,
+                    "platform_key": platform_key, "channel_url": channel_url, "enabled": data.get("enabled") is not False,
+                }))
             elif path == "/api/jobs":
                 source = self.store.get_source(str(data.get("source_id", "")))
                 source_url = str(data.get("source_url") or source["source_url"])

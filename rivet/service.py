@@ -8,6 +8,7 @@ from .config import Settings
 from .db import Store
 from .publisher import dispatch
 from .worker import Worker
+from .monitor import PlatformMonitor
 
 
 def publisher_loop(settings: Settings, store: Store, stop: threading.Event) -> None:
@@ -27,10 +28,12 @@ def main() -> None:
     store = Store(settings.db_path)
     store.recover_interrupted_jobs()
     worker = Worker(settings, store)
+    monitor = PlatformMonitor(settings, store)
     server = build_server(settings, store)
     stop = threading.Event()
     threads = [
         threading.Thread(target=worker.run, name="rivet-worker", daemon=True),
+        threading.Thread(target=monitor.run, name="rivet-monitor", daemon=True),
     ]
     if settings.publish_execution_enabled:
         threads.append(
@@ -41,6 +44,7 @@ def main() -> None:
 
     def shutdown(*_args) -> None:
         worker.stop()
+        monitor.stop()
         stop.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
@@ -51,6 +55,7 @@ def main() -> None:
     finally:
         stop.set()
         worker.stop()
+        monitor.stop()
         server.server_close()
 
 

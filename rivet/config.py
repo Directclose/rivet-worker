@@ -20,6 +20,12 @@ class Settings:
     worker_poll_seconds: float
     publish_execution_enabled: bool
     storage_durability: str = "unknown"
+    monitor_poll_seconds: float = 120.0
+    twitch_client_id: str = ""
+    twitch_client_secret: str = ""
+    youtube_api_key: str = ""
+    kick_client_id: str = ""
+    kick_client_secret: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -34,6 +40,12 @@ class Settings:
             worker_poll_seconds=float(os.getenv("RIVET_WORKER_POLL_SECONDS", "2")),
             publish_execution_enabled=_bool("RIVET_PUBLISH_EXECUTION_ENABLED"),
             storage_durability=os.getenv("RIVET_STORAGE_DURABILITY", "unknown").strip().lower(),
+            monitor_poll_seconds=float(os.getenv("RIVET_MONITOR_POLL_SECONDS", "120")),
+            twitch_client_id=os.getenv("TWITCH_CLIENT_ID", "").strip(),
+            twitch_client_secret=os.getenv("TWITCH_CLIENT_SECRET", "").strip(),
+            youtube_api_key=os.getenv("YOUTUBE_API_KEY", "").strip(),
+            kick_client_id=os.getenv("KICK_CLIENT_ID", "").strip(),
+            kick_client_secret=os.getenv("KICK_CLIENT_SECRET", "").strip(),
         )
 
     def prepare(self) -> None:
