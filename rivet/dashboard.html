@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Rivet review</title>
+  <style>
+    :root{color-scheme:dark;--bg:#080a0c;--panel:#11161b;--line:#29323b;--text:#eef4f8;--muted:#91a0ab;--blue:#75baff;--green:#55d48b;--red:#ff7474}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif}main{max-width:1160px;margin:auto;padding:28px}
+    header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:26px}h1{margin:0;font-size:32px;letter-spacing:-.04em}h2{font-size:18px}p{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+    input,textarea,select,button{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:#0b0f13;color:var(--text);margin:5px 0}textarea{min-height:90px;resize:vertical}
+    button{cursor:pointer;background:#183d60;border-color:#2f6b9d;font-weight:650}button.secondary{background:#17201b;border-color:#2f6043}button.danger{background:#3c1719;border-color:#743136}.row{display:flex;gap:8px}.row>*{flex:1}
+    .badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--muted)}.ok{color:var(--green)}.bad{color:var(--red)}
+    video{display:block;width:min(100%,270px);aspect-ratio:9/16;object-fit:contain;background:#000;border-radius:10px;margin:12px auto}.empty{padding:24px;text-align:center;color:var(--muted)}code{word-break:break-all}
+  </style>
+</head>
+<body><main>
+  <header><div><h1>Rivet</h1><p>Authorized sources → vertical clips → human review → controlled publishing</p></div><span id="state" class="badge">Connecting</span></header>
+  <section class="card"><h2>Owner access</h2><div class="row"><input id="token" type="password" placeholder="RIVET_ADMIN_TOKEN"><button onclick="saveToken()">Unlock</button></div><p>The token stays in this browser tab only.</p></section>
+  <section><h2>Queue authorized source</h2><div class="grid">
+    <form class="card" onsubmit="createSource(event)"><input id="source-name" required placeholder="Source name"><input id="source-url" required type="url" placeholder="Exact HTTPS media URL"><textarea id="rights-note" required placeholder="Rights evidence / owner note"></textarea><label><input id="ingest-rights" type="checkbox"> Authorized to ingest</label><label><input id="republish-rights" type="checkbox"> Authorized to republish</label><button>Create source</button></form>
+    <form class="card" onsubmit="queueJob(event)"><select id="job-source" required><option value="">Choose source</option></select><textarea id="captions" placeholder="Optional SRT captions"></textarea><button>Queue clip job</button></form>
+  </div></section>
+  <section><h2>Review queue</h2><div id="clips" class="grid"><div class="empty">No clips loaded.</div></div></section>
+  <section><h2>Jobs</h2><div id="jobs" class="grid"></div></section>
+</main>
+<script>
+let token=sessionStorage.getItem('rivetToken')||'';document.querySelector('#token').value=token;
+const api=async(path,options={})=>{options.headers={...(options.headers||{}),Authorization:`Bearer ${token}`};const r=await fetch(path,options);const body=await r.json();if(!r.ok)throw new Error(body.detail||body.error||`HTTP ${r.status}`);return body};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function saveToken(){token=document.querySelector('#token').value.trim();sessionStorage.setItem('rivetToken',token);refresh()}
+async function refresh(){try{const[state,sources,jobs,clips]=await Promise.all([api('/api/state'),api('/api/sources'),api('/api/jobs'),api('/api/clips')]);document.querySelector('#state').textContent=`${state.queued_jobs} queued · ${clips.clips.filter(x=>x.status==='pending_review').length} to review`;document.querySelector('#state').className='badge ok';document.querySelector('#job-source').innerHTML='<option value="">Choose source</option>'+sources.sources.filter(x=>x.ingest_authorized).map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');renderJobs(jobs.jobs);renderClips(clips.clips)}catch(e){document.querySelector('#state').textContent=e.message;document.querySelector('#state').className='badge bad'}}
+function renderJobs(items){document.querySelector('#jobs').innerHTML=items.length?items.map(x=>`<article class="card"><span class="badge">${esc(x.status)}</span><p><code>${esc(x.id)}</code></p>${x.error?`<p class="bad">${esc(x.error)}</p>`:''}</article>`).join(''):'<div class="empty">No jobs yet.</div>'}
+function renderClips(items){document.querySelector('#clips').innerHTML=items.length?items.map(x=>`<article class="card"><span class="badge">${esc(x.status)}</span><p>${Number(x.start_seconds).toFixed(1)}s–${Number(x.end_seconds).toFixed(1)}s · score ${Number(x.score).toFixed(2)}</p><button onclick="preview('${esc(x.id)}',this)">Load protected preview</button><div class="preview"></div>${x.status==='pending_review'?`<div class="row"><button class="secondary" onclick="review('${esc(x.id)}','approved')">Approve</button><button class="danger" onclick="review('${esc(x.id)}','rejected')">Reject</button></div>`:''}${x.review_note?`<p>${esc(x.review_note)}</p>`:''}</article>`).join(''):'<div class="empty">No clips yet.</div>'}
+async function preview(id,button){try{const r=await fetch(`/api/clips/${id}/media`,{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error('Preview unavailable');const url=URL.createObjectURL(await r.blob());button.parentElement.querySelector('.preview').innerHTML=`<video controls playsinline src="${url}"></video>`;button.remove()}catch(e){alert(e.message)}}
+async function review(id,decision){const note=prompt(`${decision==='approved'?'Approval':'Rejection'} note:`);if(!note)return;try{await api(`/api/clips/${id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,note})});refresh()}catch(e){alert(e.message)}}
+async function createSource(e){e.preventDefault();try{await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.querySelector('#source-name').value,source_url:document.querySelector('#source-url').value,rights_note:document.querySelector('#rights-note').value,ingest_authorized:document.querySelector('#ingest-rights').checked,republish_authorized:document.querySelector('#republish-rights').checked})});e.target.reset();refresh()}catch(err){alert(err.message)}}
+async function queueJob(e){e.preventDefault();try{await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:document.querySelector('#job-source').value,captions_srt:document.querySelector('#captions').value||null})});e.target.reset();refresh()}catch(err){alert(err.message)}}
+refresh();setInterval(refresh,5000);
+</script></body></html>

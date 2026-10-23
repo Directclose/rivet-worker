@@ -17,3 +17,6 @@ rivet-publisher = "rivet.publisher:main"
 [tool.setuptools.packages.find]
 include = ["rivet*"]
 
+[tool.setuptools.package-data]
+rivet = ["dashboard.html"]
+

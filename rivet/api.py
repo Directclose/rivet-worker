@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hmac
 import json
+import mimetypes
 import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
 
 from . import __version__
@@ -37,6 +39,34 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _html(self, status: int, body: str) -> None:
+        encoded = body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _media(self, clip_id: str) -> None:
+        if not self._authenticated():
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "admin_auth_required"})
+            return
+        clip = self.store.get_clip(clip_id)
+        path = Path(clip["output_path"]).resolve()
+        root = self.settings.artifacts_dir.resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise FileNotFoundError("clip artifact is unavailable")
+        size = path.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "private, no-store")
+        self.end_headers()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                self.wfile.write(chunk)
+
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > 1_000_000:
@@ -60,7 +90,10 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         try:
-            if path == "/health":
+            if path == "/":
+                dashboard = Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
+                self._html(200, dashboard)
+            elif path == "/health":
                 self._json(200, {"ok": True, "service": "rivet", "version": __version__})
             elif path == "/ready":
                 runtime = check_runtime()
@@ -72,15 +105,22 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "publish_execution_enabled": self.settings.publish_execution_enabled,
                 })
             elif path == "/api/sources":
-                self._json(200, {"sources": self.store.list_sources()})
+                if self._require_auth():
+                    self._json(200, {"sources": self.store.list_sources()})
             elif path == "/api/jobs":
-                self._json(200, {"jobs": self.store.list_jobs()})
+                if self._require_auth():
+                    self._json(200, {"jobs": self.store.list_jobs()})
             elif path == "/api/clips":
-                self._json(200, {"clips": self.store.list_clips()})
+                if self._require_auth():
+                    self._json(200, {"clips": self.store.list_clips()})
             elif path == "/api/destinations":
-                self._json(200, {"destinations": self.store.list_destinations()})
+                if self._require_auth():
+                    self._json(200, {"destinations": self.store.list_destinations()})
             elif path == "/api/publishing":
-                self._json(200, {"publishing": self.store.list_publishes()})
+                if self._require_auth():
+                    self._json(200, {"publishing": self.store.list_publishes()})
+            elif match := re.fullmatch(r"/api/clips/([^/]+)/media", path):
+                self._media(match.group(1))
             else:
                 self._json(404, {"ok": False, "error": "not_found", "path": path})
         except Exception as exc:
