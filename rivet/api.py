@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import hmac
+import json
+import re
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+from . import __version__
+from .authorization import AuthorizationError, authorize_source
+from .config import Settings
+from .db import Store
+from .media import check_runtime, validate_srt
+
+
+class ApiHandler(BaseHTTPRequestHandler):
+    server_version = "Rivet/0.6"
+
+    @property
+    def settings(self) -> Settings:
+        return self.server.settings  # type: ignore[attr-defined]
+
+    @property
+    def store(self) -> Store:
+        return self.server.store  # type: ignore[attr-defined]
+
+    def log_message(self, fmt: str, *args) -> None:
+        print(json.dumps({"event": "http", "message": fmt % args}))
+
+    def _json(self, status: int, payload: dict | list) -> None:
+        body = json.dumps(payload, sort_keys=True).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _body(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > 1_000_000:
+            raise ValueError("request body must be between 1 byte and 1 MB")
+        data = json.loads(self.rfile.read(length))
+        if not isinstance(data, dict):
+            raise ValueError("JSON body must be an object")
+        return data
+
+    def _authenticated(self) -> bool:
+        expected = self.settings.admin_token
+        supplied = self.headers.get("Authorization", "")
+        return bool(expected) and hmac.compare_digest(supplied, f"Bearer {expected}")
+
+    def _require_auth(self) -> bool:
+        if self._authenticated():
+            return True
+        self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "admin_auth_required"})
+        return False
+
+    def do_GET(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        try:
+            if path == "/health":
+                self._json(200, {"ok": True, "service": "rivet", "version": __version__})
+            elif path == "/ready":
+                runtime = check_runtime()
+                ready = all(runtime.values()) and self.settings.db_path.parent.exists()
+                self._json(200 if ready else 503, {"ok": ready, "runtime": runtime, "persistent_path": str(self.settings.data_dir)})
+            elif path == "/api/state":
+                self._json(200, {
+                    "ok": True, "service": "rivet", "version": __version__, **self.store.counts(),
+                    "publish_execution_enabled": self.settings.publish_execution_enabled,
+                })
+            elif path == "/api/sources":
+                self._json(200, {"sources": self.store.list_sources()})
+            elif path == "/api/jobs":
+                self._json(200, {"jobs": self.store.list_jobs()})
+            elif path == "/api/clips":
+                self._json(200, {"clips": self.store.list_clips()})
+            elif path == "/api/destinations":
+                self._json(200, {"destinations": self.store.list_destinations()})
+            elif path == "/api/publishing":
+                self._json(200, {"publishing": self.store.list_publishes()})
+            else:
+                self._json(404, {"ok": False, "error": "not_found", "path": path})
+        except Exception as exc:
+            self._json(500, {"ok": False, "error": "internal_error", "detail": str(exc)[:500]})
+
+    def do_POST(self) -> None:  # noqa: N802
+        if not self._require_auth():
+            return
+        path = urlparse(self.path).path
+        try:
+            data = self._body()
+            if path == "/api/sources":
+                source_url = str(data.get("source_url", ""))
+                parsed = urlparse(source_url)
+                if parsed.scheme != "https" or not parsed.hostname:
+                    raise ValueError("source_url must be an HTTPS URL")
+                if not str(data.get("name", "")).strip():
+                    raise ValueError("source name is required")
+                if not str(data.get("rights_note", "")).strip():
+                    raise ValueError("rights_note is required")
+                source = self.store.create_source({
+                    "id": data.get("id"), "name": str(data.get("name", "")).strip(),
+                    "source_url": source_url, "allowed_host": parsed.hostname.lower(),
+                    "ingest_authorized": data.get("ingest_authorized") is True,
+                    "republish_authorized": data.get("republish_authorized") is True,
+                    "rights_note": str(data["rights_note"]).strip(),
+                })
+                self._json(201, source)
+            elif path == "/api/jobs":
+                source = self.store.get_source(str(data.get("source_id", "")))
+                source_url = str(data.get("source_url") or source["source_url"])
+                authorize_source(source, source_url)
+                captions = data.get("captions_srt")
+                if captions is not None:
+                    validate_srt(str(captions))
+                self._json(201, self.store.create_job(source["id"], source_url, captions))
+            elif path == "/api/destinations":
+                kind = str(data.get("kind", ""))
+                if kind not in {"manual_export", "webhook"}:
+                    raise ValueError("destination kind must be manual_export or webhook")
+                self._json(201, self.store.create_destination({
+                    "id": data.get("id"), "kind": kind,
+                    "display_name": str(data.get("display_name", "")).strip(),
+                    "enabled": data.get("enabled") is True, "config": data.get("config") or {},
+                }))
+            elif match := re.fullmatch(r"/api/clips/([^/]+)/review", path):
+                note = str(data.get("note", "")).strip()
+                if not note:
+                    raise ValueError("review note is required")
+                self._json(200, self.store.review_clip(match.group(1), str(data.get("decision")), note))
+            elif path == "/api/publishing":
+                approval_note = str(data.get("approval_note", "")).strip()
+                if not approval_note:
+                    raise ValueError("approval_note is required")
+                self._json(201, self.store.queue_publish(
+                    str(data.get("clip_id", "")), str(data.get("destination_id", "")), approval_note
+                ))
+            else:
+                self._json(404, {"ok": False, "error": "not_found", "path": path})
+        except KeyError as exc:
+            self._json(404, {"ok": False, "error": "missing_resource", "detail": str(exc)})
+        except (ValueError, AuthorizationError, PermissionError) as exc:
+            self._json(400, {"ok": False, "error": "request_rejected", "detail": str(exc)})
+        except Exception as exc:
+            self._json(500, {"ok": False, "error": "internal_error", "detail": str(exc)[:500]})
+
+
+def build_server(settings: Settings, store: Store) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("0.0.0.0", settings.port), ApiHandler)
+    server.settings, server.store = settings, store  # type: ignore[attr-defined]
+    return server
+
+
+def main() -> None:
+    settings = Settings.from_env()
+    settings.prepare()
+    build_server(settings, Store(settings.db_path)).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
+
