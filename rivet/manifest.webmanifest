@@ -1,0 +1,14 @@
+{
+  "name": "Rivet Mission Control",
+  "short_name": "Rivet",
+  "description": "Private automated streamer clipping and media operations.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080b0f",
+  "theme_color": "#080b0f",
+  "orientation": "any",
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ]
+}

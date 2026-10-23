@@ -18,5 +18,5 @@ rivet-publisher = "rivet.publisher:main"
 include = ["rivet*"]
 
 [tool.setuptools.package-data]
-rivet = ["dashboard.html"]
+rivet = ["dashboard.html", "manifest.webmanifest", "sw.js", "icon.svg"]
 

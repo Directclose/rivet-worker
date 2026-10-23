@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -151,6 +152,13 @@ class MediaTests(unittest.TestCase):
     def test_duration_falls_back_to_ffmpeg(self, run, _which) -> None:
         run.return_value.stderr = "Duration: 00:01:02.50, start: 0.0"
         self.assertEqual(62.5, probe_duration(Path("source.mp4")))
+
+    def test_installable_app_assets_exist_and_protect_api_cache(self) -> None:
+        package = Path(__file__).parents[1] / "rivet"
+        manifest = json.loads((package / "manifest.webmanifest").read_text())
+        self.assertEqual("standalone", manifest["display"])
+        self.assertTrue((package / "icon.svg").is_file())
+        self.assertIn('url.pathname.startsWith("/api/")', (package / "sw.js").read_text())
 
 
 if __name__ == "__main__":

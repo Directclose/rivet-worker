@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#080b0f">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Rivet"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg">
 <title>Rivet</title>
 <style>
 :root{color-scheme:dark;
@@ -272,6 +273,7 @@ document.querySelector('#roster').innerHTML=cs.creators.map(x=>`<div class="card
 </div>`).join('')}nav();
 if(token)unlock();
 setInterval(()=>token&&load().catch(()=>{}),15000);
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 
 </script>
 </body>
