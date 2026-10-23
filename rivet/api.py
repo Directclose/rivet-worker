@@ -6,6 +6,7 @@ import mimetypes
 import re
 import sqlite3
 import time
+import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,7 +16,7 @@ from . import __version__
 from .authorization import AuthorizationError, authorize_source
 from .config import Settings
 from .db import Store
-from .media import check_runtime, validate_srt
+from .media import Candidate, check_runtime, probe_duration, render_vertical, validate_srt
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -295,6 +296,37 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if not note:
                     raise ValueError("review note is required")
                 self._json(200, self.store.review_clip(match.group(1), str(data.get("decision")), note))
+            elif match := re.fullmatch(r"/api/clips/([^/]+)/edit", path):
+                clip = self.store.get_clip(match.group(1))
+                if clip["status"] != "pending_review":
+                    raise ValueError("only pending-review clips can be edited")
+                try:
+                    start, end = float(data.get("start_seconds")), float(data.get("end_seconds"))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("start_seconds and end_seconds must be numbers") from exc
+                if start < 0 or end <= start or end - start < 3 or end - start > 90:
+                    raise ValueError("clip must be between 3 and 90 seconds with a valid start and end")
+                captions = str(data.get("captions_srt", "")).strip() or None
+                if captions:
+                    validate_srt(captions)
+                output = Path(clip["output_path"]).resolve()
+                root = self.settings.artifacts_dir.resolve()
+                source = output.parent / "source"
+                if not output.is_relative_to(root) or not source.is_file():
+                    raise ValueError("clip source artifact is unavailable")
+                if end > probe_duration(source):
+                    raise ValueError("edit end exceeds the source duration")
+                version = int(clip.get("edit_version") or 0) + 1
+                captions_path = output.parent / f"edit-captions-{version}.srt" if captions else None
+                if captions_path:
+                    captions_path.write_text(captions, encoding="utf-8")
+                temporary = output.with_suffix(".editing.mp4")
+                try:
+                    render_vertical(source, temporary, Candidate(start, end, clip["score"]), captions_path)
+                    os.replace(temporary, output)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                self._json(200, self.store.record_clip_edit(clip["id"], start, end, captions))
             elif path == "/api/publishing":
                 approval_note = str(data.get("approval_note", "")).strip()
                 if not approval_note:

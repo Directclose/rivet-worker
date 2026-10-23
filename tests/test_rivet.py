@@ -60,6 +60,19 @@ class StoreTests(unittest.TestCase):
         self.assertEqual("staged", item["status"])
         self.assertEqual("staged", self.store.get_publish(item["id"])["status"])
 
+    def test_pending_clip_edits_are_versioned_and_audited(self) -> None:
+        job = self.store.create_job(self.source["id"], self.source["source_url"], None)
+        clip = self.store.create_clip(job, 0, 30, 0.9, str(self.root / "clip.mp4"))
+        captions = "1\n00:00:00,000 --> 00:00:01,000\nHello\n"
+        edited = self.store.record_clip_edit(clip["id"], 2, 20, captions)
+        self.assertEqual(1, edited["edit_version"])
+        self.assertEqual(2, edited["start_seconds"])
+        self.assertEqual(captions, edited["captions_srt"])
+        self.assertEqual("clip.edited", self.store.list_audit_events()[0]["event_type"])
+        self.store.review_clip(clip["id"], "approved", "done")
+        with self.assertRaisesRegex(ValueError, "already been reviewed"):
+            self.store.record_clip_edit(clip["id"], 3, 21, captions)
+
     def test_manual_dispatch_stays_disabled_by_default(self) -> None:
         settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)
         with self.assertRaises(PermissionError):

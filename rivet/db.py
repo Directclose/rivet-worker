@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS clips (
   score REAL NOT NULL,
   output_path TEXT NOT NULL,
   status TEXT NOT NULL,
+  edit_version INTEGER NOT NULL DEFAULT 0,
+  captions_srt TEXT,
   review_note TEXT,
   reviewed_at REAL,
   created_at REAL NOT NULL
@@ -159,9 +161,14 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
-            columns = {row[1] for row in db.execute("PRAGMA table_info(source_candidates)").fetchall()}
-            if "ingestion_job_id" not in columns:
+            candidate_columns = {row[1] for row in db.execute("PRAGMA table_info(source_candidates)").fetchall()}
+            if "ingestion_job_id" not in candidate_columns:
                 db.execute("ALTER TABLE source_candidates ADD COLUMN ingestion_job_id TEXT REFERENCES jobs(id)")
+            clip_columns = {row[1] for row in db.execute("PRAGMA table_info(clips)").fetchall()}
+            if "edit_version" not in clip_columns:
+                db.execute("ALTER TABLE clips ADD COLUMN edit_version INTEGER NOT NULL DEFAULT 0")
+            if "captions_srt" not in clip_columns:
+                db.execute("ALTER TABLE clips ADD COLUMN captions_srt TEXT")
         self.seed_core_creators()
 
     @contextmanager
@@ -540,6 +547,22 @@ class Store:
     def list_clips(self) -> list[dict[str, Any]]:
         with self.connect() as db:
             return self._rows(db.execute("SELECT * FROM clips ORDER BY created_at DESC LIMIT 200").fetchall())
+
+    def record_clip_edit(self, clip_id: str, start: float, end: float, captions_srt: str | None) -> dict[str, Any]:
+        with self.connect() as db:
+            changed = db.execute(
+                """UPDATE clips SET start_seconds=?,end_seconds=?,captions_srt=?,edit_version=edit_version+1
+                WHERE id=? AND status='pending_review'""",
+                (start, end, captions_srt, clip_id),
+            ).rowcount
+        if not changed:
+            raise ValueError("clip is missing or has already been reviewed")
+        clip = self.get_clip(clip_id)
+        self.audit("clip.edited", clip_id, {
+            "start_seconds": start, "end_seconds": end, "captions": bool(captions_srt),
+            "edit_version": clip["edit_version"],
+        })
+        return clip
 
     def review_clip(self, clip_id: str, decision: str, note: str) -> dict[str, Any]:
         if decision not in {"approved", "rejected"}:
