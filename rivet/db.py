@@ -166,6 +166,29 @@ class Store:
             db.execute("COMMIT")
         return self.get_job(row["id"]) if changed else None
 
+    def recover_interrupted_jobs(self) -> list[str]:
+        """Requeue work left in-flight by a process restart.
+
+        Any clip rows written before the interruption are removed so retrying is
+        idempotent. The worker overwrites deterministic artifact filenames.
+        """
+        now = time.time()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            job_ids = [row[0] for row in db.execute(
+                "SELECT id FROM jobs WHERE status='processing' ORDER BY created_at"
+            ).fetchall()]
+            for job_id in job_ids:
+                db.execute("DELETE FROM clips WHERE job_id=?", (job_id,))
+                db.execute(
+                    "UPDATE jobs SET status='queued',error=?,updated_at=? WHERE id=?",
+                    ("requeued after worker restart", now, job_id),
+                )
+            db.execute("COMMIT")
+        for job_id in job_ids:
+            self.audit("job.recovered", job_id, {"reason": "worker restart"})
+        return job_ids
+
     def set_job_status(self, job_id: str, status: str, error: str | None = None) -> None:
         with self.connect() as db:
             db.execute("UPDATE jobs SET status=?,error=?,updated_at=? WHERE id=?", (status, error, time.time(), job_id))

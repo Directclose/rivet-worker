@@ -34,6 +34,17 @@ class StoreTests(unittest.TestCase):
         self.assertEqual("processing", claimed["status"])
         self.assertIsNone(self.store.claim_job())
 
+    def test_interrupted_job_is_requeued_without_duplicate_clips(self) -> None:
+        job = self.store.create_job(self.source["id"], self.source["source_url"], None)
+        claimed = self.store.claim_job()
+        self.store.create_clip(claimed, 0, 30, 0.9, str(self.root / "clip.mp4"))
+        self.assertEqual([job["id"]], self.store.recover_interrupted_jobs())
+        recovered = self.store.get_job(job["id"])
+        self.assertEqual("queued", recovered["status"])
+        self.assertEqual("requeued after worker restart", recovered["error"])
+        self.assertEqual([], self.store.list_clips())
+        self.assertEqual(job["id"], self.store.claim_job()["id"])
+
     def test_publishing_requires_review_and_rights(self) -> None:
         job = self.store.create_job(self.source["id"], self.source["source_url"], None)
         clip = self.store.create_clip(job, 0, 30, 0.9, str(self.root / "clip.mp4"))

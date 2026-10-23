@@ -25,6 +25,7 @@ def main() -> None:
     settings = Settings.from_env()
     settings.prepare()
     store = Store(settings.db_path)
+    store.recover_interrupted_jobs()
     worker = Worker(settings, store)
     server = build_server(settings, store)
     stop = threading.Event()
