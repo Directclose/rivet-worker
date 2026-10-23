@@ -45,6 +45,7 @@ class StoreTests(unittest.TestCase):
         approved = self.store.review_clip(clip["id"], "approved", "Looks good")
         item = self.store.queue_publish(approved["id"], destination["id"], "Owner approval")
         self.assertEqual("staged", item["status"])
+        self.assertEqual("staged", self.store.get_publish(item["id"])["status"])
 
     def test_manual_dispatch_stays_disabled_by_default(self) -> None:
         settings = Settings(self.root, self.root / "rivet.db", self.root, 0, "token", 100, 1, False)

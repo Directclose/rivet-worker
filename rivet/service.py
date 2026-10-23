@@ -30,8 +30,11 @@ def main() -> None:
     stop = threading.Event()
     threads = [
         threading.Thread(target=worker.run, name="rivet-worker", daemon=True),
-        threading.Thread(target=publisher_loop, args=(settings, store, stop), name="rivet-publisher", daemon=True),
     ]
+    if settings.publish_execution_enabled:
+        threads.append(
+            threading.Thread(target=publisher_loop, args=(settings, store, stop), name="rivet-publisher", daemon=True)
+        )
     for thread in threads:
         thread.start()
 

@@ -42,6 +42,8 @@ def dispatch(store: Store, settings: Settings, item: dict) -> None:
 def main() -> None:
     settings = Settings.from_env()
     settings.prepare()
+    if not settings.publish_execution_enabled:
+        raise SystemExit("publishing execution is disabled; no outbox items were claimed")
     store = Store(settings.db_path)
     while True:
         item = store.claim_publish()
